@@ -1,3 +1,12 @@
+<?php
+// øverst i filoversikt.php, etter PHP-tag, før HTML hvis du vil
+$subpages = [
+    'bokutdrag' => __DIR__ . '/../undersider/tab_hallo.php',
+    'artikler'  => __DIR__ . '/../undersider/filoversikt_artikler.php',
+    // legg til flere her etter behov
+];
+?>
+
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
     <head>
@@ -41,10 +50,17 @@
     <body id="bootstrap-overrided">
 
 <li><a class="dropdown-item ajax-link" data-target="datainput">Gå til oversikt over filer</a></li>
-<a class="nav-link ajax-link">Artikler</a>
+<a class="nav-link ajax-link" href="/undersider/tab_bokutdrag.php">Artikler</a>
 
 
 <div id="content">
+    <?php
+    if (!empty($current_subpage) && isset($subpages[$current_subpage])) {
+        include $subpages[$current_subpage];
+    } else {
+        echo "<p>Velg en tab for å vise detaljer.</p>";
+    }
+    ?>
 </div>
 <script>
 $(document).on('click', 'a.ajax-link', function (event) {

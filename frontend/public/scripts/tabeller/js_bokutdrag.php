@@ -22,7 +22,7 @@ var current_page = 1;    // Gjeldende side som vises
 var rows_per_page = 20;  // Antall rader som skal vises per side
 //var buttonContainer = document.getElementById("button-container");
 var hiddenColumns = [];
-var navover_bokutdrag_json = json_bokutdrag_path;
+var navover_bokutdrag_json = '/json/bokutdrag.txt';
 // buttonContainer.innerHTML += '<button onclick="toggleColumns([0,1,2,3,4])">Toggle kolonner</button>';
 debugLog(navover_bokutdrag_json);
 
