@@ -48,20 +48,49 @@
 </div>
 <script>
 $(document).on('click', 'a.ajax-link', function (event) {
-    var target = $(this).data('target');
-    if (!target) {
+    var $link  = $(this);
+    var target = $link.data('target');   // undefined hvis ikke satt
+    var href   = $link.attr('href');     // kan være undefined/empty
+
+    // 1) Har data-target => bruk eksisterende set_target + full side-reload
+    if (typeof target !== 'undefined' && target !== '') {
+        event.preventDefault();
+
+        $.post('/scripts/set_target.php', { target: target })
+            .done(function () {
+                // Last HELE siden på nytt via index.php (root)
+                window.location.href = '/';
+            })
+            .fail(function (xhr, status, error) {
+                console.error('Feil ved set_target:', error);
+            });
+
         return;
     }
 
-    event.preventDefault(); // hindre normal lenke-oppførsel
+    // 2) Ingen data-target, men har href => last inn i #content via AJAX
+    if (href && href !== '#') {
+        event.preventDefault();
 
-    $.post('/scripts/set_target.php', { target: target }, function () {
-        // Last HELE siden på nytt via index.php
-        window.location.href = '/'; 
-        // f.eks. main_project_path = '/index.php' eller '/';
-    });
+        $.ajax({
+            url: href,
+            type: 'GET',
+            success: function (html) {
+                // Sett hele responsen inn i content-diven
+                $('#content').html(html);
+            },
+            error: function (xhr, status, error) {
+                console.error('Feil ved lasting av innhold:', error);
+                $('#content').html('<p>Kunne ikke laste innhold. Prøv igjen senere.</p>');
+            }
+        });
+
+        return;
+    }
+
+    // 3) Hvis verken data-target eller href gir mening, gjør ingenting spesielt
+    // (lenken kan oppføre seg normalt, eller du kan event.preventDefault() her også)
 });
 </script>
-
 </body>
 </html>
