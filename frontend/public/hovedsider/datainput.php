@@ -1,0 +1,1 @@
+HEI, NÅ ER DU PÅ DATAINPUT
