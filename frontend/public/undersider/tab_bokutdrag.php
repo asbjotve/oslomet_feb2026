@@ -87,5 +87,5 @@
 
 <?php
 //include $script_tab_bokutdrag;
-include $path_inc . 'script/js_filoversikt_bokutdrag.php';
+include $path_inc . '/script/js_filoversikt_bokutdrag.php';
 ?>
