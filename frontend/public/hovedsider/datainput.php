@@ -46,13 +46,11 @@
   class="btn btn-primary goto-via-target"
   data-target="oversikt"
   data-sub="bokutdrag"
-  data-href="/?sub=bokutdrag">
   Gå til filoversikt (bokutdrag)
 </button>
 
 <!-- Lenke -->
 <a
-  href="/?sub=bokutdrag"
   class="goto-via-target"
   data-target="oversikt"
   data-sub="bokutdrag">
@@ -107,14 +105,55 @@ $(document).on('click', 'a.ajax-link', function (event) {
     // (lenken kan oppføre seg normalt, eller du kan event.preventDefault() her også)
 });
 </script>
+
 <script>
+$(document).on('click', 'a.ajax-link', function (event) {
+    var $link  = $(this);
+    var target = $link.data('target');
+    var href   = $link.attr('href');
+
+    // 1) Har data-target => bytt hovedside via set_target + full reload
+    if (typeof target !== 'undefined' && target !== '') {
+        event.preventDefault();
+
+        $.post('/scripts/set_target.php', { target: target })
+            .done(function () {
+                window.location.href = '/';
+            })
+            .fail(function (xhr, status, error) {
+                console.error('Feil ved set_target:', error);
+            });
+
+        return;
+    }
+
+    // 2) Ingen data-target, men har href => last inn i #content via AJAX
+    if (href && href !== '#') {
+        event.preventDefault();
+
+        $.ajax({
+            url: href,
+            type: 'GET',
+            success: function (html) {
+                $('#content').html(html);
+            },
+            error: function (xhr, status, error) {
+                console.error('Feil ved lasting av innhold:', error);
+                $('#content').html('<p>Kunne ikke laste innhold. Prøv igjen senere.</p>');
+            }
+        });
+
+        return;
+    }
+});
+
+// Handler for goto-via-target
 $(document).on('click', '.goto-via-target', function (event) {
     event.preventDefault();
 
     var $el    = $(this);
-    var target = $el.data('target');                 // f.eks. "oversikt"
-    var sub    = $el.data('sub');                    // f.eks. "bokutdrag"
-    var href   = $el.data('href') || $el.attr('href') || '/';
+    var target = $el.data('target');  // f.eks. "oversikt"
+    var sub    = $el.data('sub');     // f.eks. "bokutdrag"
 
     if (!target) {
         console.error('goto-via-target mangler data-target');
@@ -128,7 +167,8 @@ $(document).on('click', '.goto-via-target', function (event) {
 
     $.post('/scripts/set_target.php', postData)
         .done(function () {
-            window.location.href = href;
+            // Redirect til bare root (ingen query)
+            window.location.href = '/';
         })
         .fail(function (xhr, status, error) {
             console.error('Feil ved set_target:', error);
