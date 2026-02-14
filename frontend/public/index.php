@@ -16,6 +16,9 @@ $loggut_url         = $main_path . "hovedsider/loggut.php";
 // Hovedside
 $target = $_SESSION['target'] ?? 'oversikt';
 
+// Underside: kun fra session (ingen GET-parametre)
+$subpage = $_SESSION['sub'] ?? null;
+
 // Del verdien med hovedsidene
 $current_subpage = $subpage;
 

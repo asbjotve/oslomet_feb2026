@@ -45,12 +45,13 @@
   type="button"
   class="btn btn-primary goto-via-target"
   data-target="oversikt"
-  data-sub="bokutdrag"
+  data-sub="bokutdrag">
   Gå til filoversikt (bokutdrag)
 </button>
 
 <!-- Lenke -->
 <a
+  href="#"
   class="goto-via-target"
   data-target="oversikt"
   data-sub="bokutdrag">
