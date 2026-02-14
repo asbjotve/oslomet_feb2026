@@ -106,7 +106,7 @@ $(document).on('click', 'a.ajax-link', function (event) {
     // 3) Hvis verken data-target eller href gir mening, gjør ingenting spesielt
     // (lenken kan oppføre seg normalt, eller du kan event.preventDefault() her også)
 });
-
+</script>
 <script>
 $(document).on('click', '.goto-via-target', function (event) {
     event.preventDefault();
