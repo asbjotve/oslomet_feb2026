@@ -1,0 +1,65 @@
+CREATE VIEW referansesjekk_utdrag AS
+SELECT
+  ap.id AS pensumid,
+  ar.unik_bok_id AS unik_bok_id,
+  ar.id AS id,
+  ar.unik_utdrag_id AS unik_utdrag_id,
+  ar.chapter AS chapter,
+  ar.chapter_title AS chapter_title,
+  ar.chapter_author AS chapter_author,
+  ar.public_note AS public_note,
+  ak.code AS code,
+  CONCAT_WS(
+    ', ',
+    CASE
+      WHEN ar.start_page IS NOT NULL AND ar.end_page IS NOT NULL
+      THEN CONCAT(ar.start_page, '-', ar.end_page)
+    END,
+    CASE
+      WHEN ar.start_page2 IS NOT NULL AND ar.end_page2 IS NOT NULL
+      THEN CONCAT(ar.start_page2, '-', ar.end_page2)
+    END,
+    CASE
+      WHEN ar.start_page3 IS NOT NULL AND ar.end_page3 IS NOT NULL
+      THEN CONCAT(ar.start_page3, '-', ar.end_page3)
+    END,
+    CASE
+      WHEN ar.start_page4 IS NOT NULL AND ar.end_page4 IS NOT NULL
+      THEN CONCAT(ar.start_page4, '-', ar.end_page4)
+    END,
+    CASE
+      WHEN ar.start_page5 IS NOT NULL AND ar.end_page5 IS NOT NULL
+      THEN CONCAT(ar.start_page5, '-', ar.end_page5)
+    END,
+    CASE
+      WHEN ar.start_page6 IS NOT NULL AND ar.end_page6 IS NOT NULL
+      THEN CONCAT(ar.start_page6, '-', ar.end_page6)
+    END,
+    CASE
+      WHEN ar.start_page7 IS NOT NULL AND ar.end_page7 IS NOT NULL
+      THEN CONCAT(ar.start_page7, '-', ar.end_page7)
+    END,
+    CASE
+      WHEN ar.start_page8 IS NOT NULL AND ar.end_page8 IS NOT NULL
+      THEN CONCAT(ar.start_page8, '-', ar.end_page8)
+    END,
+    CASE
+      WHEN ar.start_page9 IS NOT NULL AND ar.end_page9 IS NOT NULL
+      THEN CONCAT(ar.start_page9, '-', ar.end_page9)
+    END,
+    CASE
+      WHEN ar.start_page10 IS NOT NULL AND ar.end_page10 IS NOT NULL
+      THEN CONCAT(ar.start_page10, '-', ar.end_page10)
+    END
+  ) AS formatted_pages
+FROM api_alma_kurs_pensumlister_kobling AS akpk
+JOIN api_alma_referanser AS ar
+  ON ar.pensumliste_id = akpk.pensumliste_id
+JOIN api_alma_pensumlister AS ap
+  ON ap.id = akpk.pensumliste_id
+JOIN api_alma_kurs AS ak
+  ON ak.id = akpk.kurs_id
+WHERE ar.secondary_type IN ('Book', 'Book Extract', 'Book Chapter', 'Score')
+  AND ap.status IN ('ReadyForProcessing', 'BeingProcessed', 'Complete')
+  AND ar.citation_tags IN ('1', '3', '4', '12')
+GROUP BY ap.id, ar.id;
