@@ -1,3 +1,7 @@
+CREATE TABLE IF NOT EXISISTS db_oslomet;
+
+use db_oslomet;
+
 CREATE TABLE IF NOT EXISTS api_alma_instructors (
  id varchar(40) NOT NULL,
  owner text NOT NULL,
