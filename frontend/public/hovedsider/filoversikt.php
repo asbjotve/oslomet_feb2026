@@ -7,6 +7,13 @@ $subpages = [
 ];
 ?>
 
+<?php
+
+include '/var/www/dev.oslomet.plexcity.net/php_variables.php';
+
+print $s_tabell_bokutdragfiler;
+?>
+
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
     <head>
@@ -50,8 +57,8 @@ $subpages = [
     <body id="bootstrap-overrided">
 
 <li><a class="dropdown-item ajax-link" data-target="datainput">Gå til oversikt over filer</a></li>
-<a class="nav-link ajax-link" href="/undersider/tab_bokutdrag.php">Artikler</a>
-
+<a class="nav-link ajax-link" href="/undersider/tabell_bokutdragfiler.php">Bokutdrag</a>
+<a class="nav-link ajax-link" href="/undersider/tabell_artikkelfiler.php">Artikler</a>
 
 <div id="content">
     <?php
