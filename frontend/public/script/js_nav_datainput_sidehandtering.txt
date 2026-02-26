@@ -1,0 +1,175 @@
+// === Hjelpefunksjoner ===
+function getCookie(name) {
+    let matches = document.cookie.match(new RegExp(
+        "(?:^|; )" + name.replace(/([$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
+    ));
+    return matches ? decodeURIComponent(matches[1]) : null;
+}
+function setCookie(name, value) {
+    document.cookie = name + "=" + encodeURIComponent(value) + "; path=/";
+}
+
+function deleteAllCookies() {
+    document.cookie.split(";").forEach(function(c) {
+        let eqPos = c.indexOf("=");
+        let name = eqPos > -1 ? c.substr(0, eqPos).trim() : c.trim();
+        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;";
+    });
+}
+
+function getRoles() {
+    return fetch('/proxy.php?endpoint=brukerroller', { method: 'POST' })
+        .then(r => {
+            if (!r.ok) throw new Error("Feil ved henting av roller");
+            return r.json();
+        })
+        .then(data => {
+            // Hvis backend returnerer "Ugyldig token" i detail
+            if (data.detail === "Ugyldig token") throw new Error("unauthorized");
+            return data.roles;
+        })
+        .catch(function(error) {
+            alert('Du har mistet tilgangen (ugyldig token). Du blir videresendt til startsiden.');
+            deleteAllCookies();
+            window.location.href = main_project_path;
+        });
+}
+
+// Roller og paths (SAMME nøkkel overalt, små bokstaver)
+const pageRoles = {
+    hjem: ['medarbeider', 'user', 'editor', 'superadmin'],
+    bokutdrag: ['medarbeider', 'user', 'editor', 'superadmin'],
+    artikler: ['medarbeider', 'editor', 'superadmin'],
+    'annen type dokumenter': ['medarbeider', 'superadmin'],
+    'sammensatte filer': ['medarbeider', 'superadmin'],
+};
+
+const links = {
+    hjem: typeof hjem_path !== "undefined" ? hjem_path : bokutdrag_path,
+    bokutdrag: typeof bokutdrag_path !== "undefined" ? bokutdrag_path : "/bokutdrag",
+    artikler: typeof artikler_path !== "undefined" ? artikler_path : "/artikler",
+    'annen type dokumenter': typeof annet_path !== "undefined" ? annet_path : "/annet",
+    'sammensatte filer': typeof sammensatt_path !== "undefined" ? sammensatt_path : "/sammensatt",
+};
+
+// Tilgangskontroll
+function hasRoleAccess(linkType, userRoles) {
+    const needed = (pageRoles[linkType] || ['guest']).map(r => r.toLowerCase());
+    const user = userRoles.map(r => r.toLowerCase());
+    return user.some(role => needed.includes(role));
+}
+
+function getFallbackPage(userRoles) {
+    for (const [key, path] of Object.entries(links))
+        if (hasRoleAccess(key, userRoles)) return { key, path };
+    return { key: 'hjem', path: links.hjem };
+}
+
+function hideInaccessibleLinks(userRoles) {
+    $('.nav-link.ajax-link').each(function() {
+        var linkType = $(this).text().toLowerCase().trim();
+        if (!hasRoleAccess(linkType, userRoles)) $(this).hide();
+        else $(this).show();
+    });
+}
+
+function setActiveNavByUrl(url) {
+    $('.nav-link.ajax-link').removeClass('active');
+    $('.nav-link.ajax-link').each(function() {
+        var txt = $(this).text().toLowerCase().trim();
+        $.each(links, function(key, val) {
+            if (val === url && key === txt) $(this).addClass('active');
+        }.bind(this));
+    });
+}
+
+function showAccessModal(forPage) {
+    let pageName = forPage ? (forPage.charAt(0).toUpperCase() + forPage.slice(1)) : "";
+    document.getElementById('accessModalBody').innerText =
+        "Du har ikke tilgang til siden «" + pageName + "». Du har blitt videresendt til nærmeste side du har tilgang til.";
+    var modal = new bootstrap.Modal(document.getElementById('accessModal'));
+    modal.show();
+}
+
+// Event listeners for spesifikke sider
+function initPageListeners(url) {
+    if (typeof bokutdrag_path !== "undefined" && url === bokutdrag_path) {
+        if (typeof bokutdragScript === "function") bokutdragScript();
+    } else if (typeof annet_path !== "undefined" && url === annet_path) {
+        if (typeof attachFormSubmitHandler === "function") attachFormSubmitHandler('#annetForm', annet_path);
+    } else if (typeof artikler_path !== "undefined" && url === artikler_path) {
+	if (typeof artiklerScript === "function") artiklerScript();
+    } else if (typeof sammensatt_path !== "undefined" && url === sammensatt_path) {
+        if (typeof sammensattScript === "function") sammensattScript();
+    }
+}
+
+// === Init-script ===
+$(function() {
+    getRoles()
+    .then(function(userRoles) {
+        hideInaccessibleLinks(userRoles);
+
+        var fallback = getFallbackPage(userRoles);
+        var cookieUrl = getCookie('currentUrl');
+        var currentUrl = cookieUrl ? cookieUrl : fallback.path;
+
+        // Sjekk at currentUrl faktisk er en gyldig og tilgjengelig side
+        var validUrl = Object.values(links).indexOf(currentUrl) !== -1 && hasRoleAccess(
+            Object.keys(links).find(key => links[key] === currentUrl), userRoles
+        );
+        if (!validUrl) {
+            currentUrl = fallback.path;
+        }
+
+        // Last inn valgt/fallback-side
+        $.get(currentUrl, function (data) {
+            $("#content").html(data);
+            setActiveNavByUrl(currentUrl);
+            initPageListeners(currentUrl);
+            setCookie('currentUrl', currentUrl);
+        });
+
+        // Navigasjon med adgangskontroll + modal
+        $(document).on('click', 'a.ajax-link', function (event) {
+            var linkType = $(this).text().toLowerCase().trim();
+            var url = links[linkType];
+            var target = $(this).data('target');
+            if (url && url.endsWith('#')) return;
+            else if (target) {
+                event.preventDefault();
+                $.post(setsession_path, { target: target }, function () {
+                    window.location.href = main_project_path;
+                });
+            } else if (url) {
+                if (!hasRoleAccess(linkType, userRoles)) {
+                    event.preventDefault();
+                    var fallback = getFallbackPage(userRoles);
+                    $.get(fallback.path, function (data) {
+                        $("#content").html(data);
+                        setActiveNavByUrl(fallback.path);
+                        initPageListeners(fallback.path);
+                        setCookie('currentUrl', fallback.path);
+                        showAccessModal(linkType);
+                    });
+                    return;
+                }
+                event.preventDefault();
+                $.get(url, function (data) {
+                    $("#content").html(data);
+                    setActiveNavByUrl(url);
+                    initPageListeners(url);
+                    setCookie('currentUrl', url);
+                }).fail(function () {
+                    window.location.href = url;
+                });
+            }
+        });
+    })
+    .catch(function(error) {
+        // Hvis vi får 401 eller ikke får roller: fallback til 'oversikt'
+        $.post(setsession_path, { target: "oversikt" }, function () {
+            window.location.href = main_project_path;
+        });
+    });
+});

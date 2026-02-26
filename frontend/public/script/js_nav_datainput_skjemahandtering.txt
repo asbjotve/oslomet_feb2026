@@ -1,0 +1,309 @@
+    var leggtilfil_success_1 = `<div class="alert alert-success light-mode alert-dismissible fade show" role="alert">
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="currentColor" class="bi bi-check-circle" viewBox="0 0 16 16">
+<path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+<path d="m10.97 4.97-.02.022-3.473 4.425-2.093-2.094a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05"/>
+</svg>
+&nbsp;&nbsp;Filen ved navn <strong>`;
+
+    var leggtilfil_success_2 = `</strong> ble lagt til i filoversikten!
+<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>`;
+
+
+    function attachFormSubmitHandler(formId, pageUrl) {
+        if (formId === '#bokutdragForm') {
+            var form = document.querySelector(formId);
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                // Fjern disabled-attributtet fra feltene før innsending
+                $('#boktittel').removeAttr('disabled');
+                $('#forfattere').removeAttr('disabled');
+                $('#utgitt').removeAttr('disabled');
+                $('#forlag').removeAttr('disabled');
+
+                // Feilsøking: Logg verdien av filnavn-feltet
+                var filnavn = $('#filnavn').val();
+                debugLog('Filnavn:', filnavn);
+
+                    var formData = new FormData(this);
+                    formData.append('user_token', token);
+                    formData.append('user_id', user_id);
+                    formData.append('brukernavn', brukernavn);
+
+                    //Feilsøking
+                    for (var pair of formData.entries()) {
+                        debugLog(pair[0] + ', ' + pair[1]);
+                    }
+
+                    fetch(ajax_handler_path, {
+                            method: this.method,
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            debugLog(data);
+                            if (data.errors && data.errors.length === 1 && data.errors[0] === "1") {
+
+                                var myModal = new bootstrap.Modal(document.getElementById('tomt_isbn_nummer'), {});
+                                myModal.show();
+
+                            } else if (data.errors && data.errors.length === 1 && data.errors[0] === "Tokenen din har utløpt. Vennligst logg inn på nytt.") {
+                                var countdown = 10;
+                                var countdownDisplay = document.querySelector('#utlogging .modal-body');
+                                countdownDisplay.innerHTML = data.errors[0] + '<br><br>Du sendes til startsiden om ' + countdown + ' sekunder.';
+
+                                var myModal = new bootstrap.Modal(document.getElementById('utlogging'), {});
+                                myModal.show();
+
+                                var countdownInterval = setInterval(function () {
+                                    countdown--;
+                                    if (countdown > 0) {
+                                        countdownDisplay.innerHTML = data.errors[0] + '<br><br>Du sendes til startsiden om ' + countdown + ' sekunder.';
+                                    }
+                                }, 1000);
+
+                                // Omdiriger brukeren etter 5 sekunder
+                                setTimeout(function () {
+                                    window.location.href = '/filoversikt';
+                                }, 10000);
+
+                            } else if (data.errors && data.errors.length === 1 && data.errors[0] === "Ugyldig token - re-pålogging/pålogging nødvendig") {
+
+                                var countdown = 10;
+                                var countdownDisplay = document.querySelector('#utlogging .modal-body');
+                                countdownDisplay.innerHTML = data.errors[0] + '<br><br>Du sendes til startsiden om ' + countdown + ' sekunder.';
+
+                                var myModal = new bootstrap.Modal(document.getElementById('utlogging'), {});
+                                myModal.show();
+
+                                var countdownInterval = setInterval(function () {
+                                    countdown--;
+                                    if (countdown > 0) {
+                                        countdownDisplay.innerHTML = data.errors[0] + '<br><br>Du sendes til startsiden om ' + countdown + ' sekunder.';
+                                    }
+                                }, 1000);
+
+                                // Omdiriger brukeren etter 5 sekunder
+                                setTimeout(function () {
+                                    window.location.href = '/filoversikt';
+                                }, 10000);
+
+                            } else if (data.errors && data.errors.length > 0) {
+                                var errorContent = data.errors.join('<br><br>');
+                                document.querySelector('#hello .modal-body').innerHTML = errorContent;
+
+                                var myModal = new bootstrap.Modal(document.getElementById('hello'), {});
+                                myModal.show();
+
+                            } else {
+                                if (data.success && data.success.length > 0) {
+                                    // Oppdater innholdet i div
+
+                                    var successMessage = leggtilfil_success_1 + data.filnavn + leggtilfil_success_2;
+
+                                    document.querySelector('#successDiv').innerHTML = successMessage;
+                                }
+                                fetch(pageUrl)
+                                    .then(response => response.text())
+                                    .then(data => {
+                                        document.querySelector('#content').innerHTML = data;
+                                        functions_bokutdragListener();
+                                        isbnButtonEventListener();
+                                    });
+                            }
+                        });
+                });
+            }
+        } else if (formId === '#isbnForm') {
+            var form = document.querySelector(formId);
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    var formData = new FormData(this);
+
+                    fetch(ajax_handler_path, {
+                            method: this.method,
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.errors && data.errors.length > 0) {
+                                debugLog("error er ", data.errors);
+                            } else {
+                                if (data.success && data.success.length > 0) {
+                                    // Oppdater innholdet i div
+
+                                    var successMessage = leggtilfil_success_1 + data.filnavn + leggtilfil_success_2;
+
+                                    document.querySelector('#successDiv').innerHTML = successMessage;
+                                }
+                                fetch(bokutdrag_path)
+                                    .then(response => response.text())
+                                    .then(data => {
+                                        document.querySelector('#content').innerHTML = data;
+                                        functions_bokutdragListener();
+                                        var myModal = bootstrap.Modal.getInstance(document.getElementById('tomt_isbn_nummer'));
+                                        if (myModal) {
+                                            myModal.hide();
+                                        }
+                                    });
+                            }
+                        });
+                });
+            }
+        } else if (formId === '#artiklerForm') {
+            var form = document.querySelector(formId);
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    var formData = new FormData(this);
+                    formData.append('user_token', token);
+                    formData.append('user_id', user_id);
+                    formData.append('brukernavn', brukernavn);
+
+                    //Feilsøking
+                    for (var pair of formData.entries()) {
+                        debugLog(pair[0] + ', ' + pair[1]);
+                    }
+
+                    fetch(ajax_handler_path, {
+                            method: this.method,
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.errors && data.errors.length === 1 && data.errors[0] === "1") {
+
+                                var myModal = new bootstrap.Modal(document.getElementById('tomt_isbn_nummer'), {});
+                                myModal.show();
+                            } else if (data.errors && data.errors.length > 0) {
+                                var errorContent = data.errors.join('<br><br>');
+                                document.querySelector('#hello .modal-body').innerHTML = errorContent;
+
+                                var myModal = new bootstrap.Modal(document.getElementById('hello'), {});
+                                myModal.show();
+                            } else {
+                                if (data.success && data.success.length > 0) {
+                                    // Oppdater innholdet i div
+
+                                    var successMessage = leggtilfil_success_1 + data.filnavn + leggtilfil_success_2;
+
+                                    document.querySelector('#successDiv').innerHTML = successMessage;
+                                }
+                                fetch(pageUrl)
+                                    .then(response => response.text())
+                                    .then(data => {
+                                        document.querySelector('#content').innerHTML = data;
+                                        functions_bokutdragListener();
+                                    });
+                            }
+                        });
+                });
+            }
+        } else if (formId === '#annetForm') {
+            var form = document.querySelector(formId);
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    var formData = new FormData(this);
+                    formData.append('user_token', token);
+                    formData.append('user_id', user_id);
+                    formData.append('brukernavn', brukernavn);
+
+                    //Feilsøking
+                    for (var pair of formData.entries()) {
+                        debugLog(pair[0] + ', ' + pair[1]);
+                    }
+
+                    fetch(ajax_handler_path, {
+                            method: this.method,
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.errors && data.errors.length === 1 && data.errors[0] === "1") {
+
+                                var myModal = new bootstrap.Modal(document.getElementById('tomt_isbn_nummer'), {});
+                                myModal.show();
+                            } else if (data.errors && data.errors.length > 0) {
+                                var errorContent = data.errors.join('<br><br>');
+                                document.querySelector('#hello .modal-body').innerHTML = errorContent;
+
+                                var myModal = new bootstrap.Modal(document.getElementById('hello'), {});
+                                myModal.show();
+                            } else {
+                                if (data.success && data.success.length > 0) {
+                                    // Oppdater innholdet i div
+
+                                    var successMessage = leggtilfil_success_1 + data.filnavn + leggtilfil_success_2;
+
+                                    document.querySelector('#successDiv').innerHTML = successMessage;
+                                }
+                                fetch(pageUrl)
+                                    .then(response => response.text())
+                                    .then(data => {
+                                        document.querySelector('#content').innerHTML = data;
+                                        functions_bokutdragListener();
+                                    });
+                            }
+                        });
+                });
+            }
+        } else if (formId === '#sammensattForm') {
+            var form = document.querySelector(formId);
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    var formData = new FormData(this);
+                    formData.append('user_token', token);
+                    formData.append('user_id', user_id);
+                    formData.append('brukernavn', brukernavn);
+
+                    //Feilsøking
+                    for (var pair of formData.entries()) {
+                        debugLog(pair[0] + ', ' + pair[1]);
+                    }
+
+                    fetch(ajax_handler_path, {
+                            method: this.method,
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.errors && data.errors.length === 1 && data.errors[0] === "1") {
+
+                                var myModal = new bootstrap.Modal(document.getElementById('tomt_isbn_nummer'), {});
+                                myModal.show();
+                            } else if (data.errors && data.errors.length > 0) {
+                                var errorContent = data.errors.join('<br><br>');
+                                document.querySelector('#hello .modal-body').innerHTML = errorContent;
+
+                                var myModal = new bootstrap.Modal(document.getElementById('hello'), {});
+                                myModal.show();
+                            } else {
+                                if (data.success && data.success.length > 0) {
+                                    // Oppdater innholdet i div
+
+                                    var successMessage = leggtilfil_success_1 + data.filnavn + leggtilfil_success_2;
+
+                                    document.querySelector('#successDiv').innerHTML = successMessage;
+                                }
+                                fetch(pageUrl)
+                                    .then(response => response.text())
+                                    .then(data => {
+                                        document.querySelector('#content').innerHTML = data;
+                                        attachFormSubmitHandler('#sammensattForm', sammensatt_path);
+                                        sammensattScript();
+                                    });
+                            }
+                        });
+                });
+            }
+        }
+    }
