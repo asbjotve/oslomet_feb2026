@@ -187,3 +187,71 @@ WHERE ar.secondary_type IN ('Book', 'Book Extract', 'Book Chapter', 'Score')
   AND akpk.status_pensumliste2 IN ('ReadyForProcessing','BeingProcessed','Complete')
   AND ar.citation_tags IN ('1','3','4','12')
 GROUP BY akpk.pensumliste_id, ar.id;
+
+CREATE VIEW arbeidsoversikt_art IF NOT EXISTS AS
+SELECT
+  api_alma_referanser.id                         AS SiteringsID,
+  api_alma_referanser.pensumliste_id             AS `PensumlisteID ( List ID)`,
+  api_alma_pensumlister.name                     AS `Emnekode og emnenavn`,
+  api_alma_referanser.secondary_type             AS Materialtype,
+  api_alma_referanser.article_title              AS Artikkeltittel,
+  api_alma_referanser.author                     AS Forfatter,
+  api_alma_referanser.publication_date           AS Publiseringsdato,
+  api_alma_referanser.journal_title              AS Tidsskrift,
+  api_alma_referanser.publisher                  AS Utgiver,
+  api_alma_referanser.issn                       AS ISSN,
+  api_alma_referanser.volume                     AS Volume,
+  api_alma_referanser.issue                      AS Nummer,
+  api_alma_referanser.sammensatt_sideangivelse   AS Sideangivelse,
+  api_alma_referanser.public_note                AS Siteringsnote,
+  '2000'                                         AS Behandlingskode,
+  api_alma_referanser.kommentar                  AS Kommentar,
+  ''                                             AS `Sendt epost`,
+  api_alma_referanser.last_modified_date         AS `Last modificated`,
+  api_alma_kurs.fakultet                         AS Fakultet,
+  api_alma_kurs_pensumlister_kobling.aarsem      AS `ÅrSemester`,
+  DATE_FORMAT(CURDATE(), '%d.%m.%Y')             AS `Første gang importert`
+FROM api_alma_kurs_pensumlister_kobling
+JOIN api_alma_kurs
+  ON api_alma_kurs_pensumlister_kobling.kurs_id = api_alma_kurs.id
+JOIN api_alma_pensumlister
+  ON api_alma_kurs_pensumlister_kobling.pensumliste_id = api_alma_pensumlister.id
+JOIN api_alma_referanser
+  ON api_alma_kurs_pensumlister_kobling.pensumliste_id = api_alma_referanser.pensumliste_id
+JOIN KursPensumlisteView
+  ON api_alma_kurs_pensumlister_kobling.kurs_id = KursPensumlisteView.kurs_id
+WHERE
+  (
+    (
+      api_alma_referanser.citation_tags = 1
+      AND api_alma_referanser.indikator_vaar_fil = 0
+    )
+    OR api_alma_referanser.citation_tags IN ('3', '4', '12')
+  )
+  AND api_alma_referanser.map_secondary_type = '2'
+GROUP BY
+  api_alma_referanser.id,
+  api_alma_kurs_pensumlister_kobling.aarsem
+UNION ALL
+SELECT
+  NULL AS SiteringsID,
+  NULL AS `PensumlisteID ( List ID)`,
+  NULL AS `Emnekode og emnenavn`,
+  NULL AS Materialtype,
+  NULL AS Artikkeltittel,
+  NULL AS Forfatter,
+  NULL AS Publiseringsdato,
+  NULL AS Tidsskrift,
+  NULL AS Utgiver,
+  NULL AS ISSN,
+  NULL AS Volume,
+  NULL AS Nummer,
+  NULL AS Sideangivelse,
+  NULL AS Siteringsnote,
+  '2000' AS Behandlingskode,
+  NULL AS Kommentar,
+  ''   AS `Sendt epost`,
+  NULL AS `Last modificated`,
+  NULL AS Fakultet,
+  NULL AS `ÅrSemester`,
+  DATE_FORMAT(CURDATE(), '%d.%m.%Y') AS `Første gang importert`;
