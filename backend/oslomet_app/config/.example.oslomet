@@ -1,0 +1,29 @@
+################################
+# APPLIKASJONS-SPESIFIKKE VARIABLER
+################################
+HOST="0.0.0.0"
+ADMIN_PW="hemmelig"
+FASTAPI_TOKEN=""
+
+################################
+#    MYSQL-DATABASE
+################################
+DB_HOST="localhost"
+DB_PORT="3306"
+DB_USER="root"
+DB_PASSWORD=""
+DB_NAME="db_oslomet"
+DB_NAME_TEST="db_test_oslomet"
+
+################################
+#    EKSTERNE API-NØKKLER
+################################
+# Må omdøpes, til f.eks. ALMA_API_COURSE_KEY
+ALMA_API_KEY=""
+ALMA_API_BIB_KEY=""
+
+################################
+#    ANNET
+################################
+# Mal (sheet-id) for produsering av nye arbeidsoversikter
+MAL_ARBEIDSOVERSIKT_SHEETID=""
