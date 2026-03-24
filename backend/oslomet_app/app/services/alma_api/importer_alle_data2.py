@@ -213,7 +213,8 @@ async def insert_to_db(pool: aiomysql.Pool, course_json: Dict[str, Any]) -> None
                     rl_owner_url = f"https://api-eu.hosted.exlibrisgroup.com/almaws/v1/courses/{c_id}/reading-lists/{rl_id}/owners"
 
                     try:
-                        await c.execute(
+                        await execute_with_retry(
+                            c,
                             """
                             INSERT IGNORE INTO api_alma_pensumlister (
                                 id, kurs_id, code, name, link, due_back_date, status, syllabus, score,
