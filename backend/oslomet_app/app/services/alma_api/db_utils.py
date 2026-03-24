@@ -1,18 +1,28 @@
+import logging
 import aiomysql
 
-async def slett_eksisterende_data(pool, year):
+logger = logging.getLogger(__name__)
+
+async def slett_eksisterende_data(pool: aiomysql.Pool, year: str) -> None:
     async with pool.acquire() as conn:
-        async with conn.cursor() as c:
-            if year == "all":
-                await c.execute("TRUNCATE TABLE api_alma_kurs")
-                await c.execute("TRUNCATE TABLE api_alma_pensumlister")
-                await c.execute("TRUNCATE TABLE api_alma_referanser")
-                await c.execute("TRUNCATE TABLE api_alma_kurs_pensumlister_kobling")
-            else:
-                await c.execute("DELETE FROM api_alma_kurs WHERE year = %s", (year,))
-                await c.execute("DELETE FROM api_alma_pensumlister WHERE course_year = %s", (year,))
-                await c.execute("DELETE FROM api_alma_referanser WHERE course_year = %s", (year,))
-                await c.execute("DELETE FROM api_alma_kurs_pensumlister_kobling WHERE aar = %s", (year,))
+        async with conn.cursor(aiomysql.DictCursor) as c:
+            try:
+                if year == "all":
+                    await c.execute("TRUNCATE TABLE api_alma_kurs")
+                    await c.execute("TRUNCATE TABLE api_alma_pensumlister")
+                    await c.execute("TRUNCATE TABLE api_alma_referanser")
+                    await c.execute("TRUNCATE TABLE api_alma_kurs_pensumlister_kobling")
+                else:
+                    await c.execute("DELETE FROM api_alma_kurs WHERE year = %s", (year,))
+                    await c.execute("DELETE FROM api_alma_pensumlister WHERE course_year = %s", (year,))
+                    await c.execute("DELETE FROM api_alma_referanser WHERE course_year = %s", (year,))
+                    await c.execute("DELETE FROM api_alma_kurs_pensumlister_kobling WHERE aar = %s", (year,))
+
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                logger.exception("slett_eksisterende_data feilet (year=%s)", year)
+                raise
 
 async def hent_referanse(pool, referanse_id, year=None, import_alle_data_func=None):
     """
