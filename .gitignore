@@ -1,0 +1,8 @@
+# Ignorer filer som heter .oslomet uansett hvor de ligger
+.oslomet
+
+# Ignorer mapper som heter .venv uansett hvor (inkludert alt innhold)
+.venv/
+
+# Ignorer __pycache__-mapper (og alt inni) uansett nivå
+__pycache__/
