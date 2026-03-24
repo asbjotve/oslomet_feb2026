@@ -218,7 +218,7 @@ async def run_import_for_one_year_queue_worker(
     pool: aiomysql.Pool,
     year: Optional[str],
     *,
-    concurrency: int = 31,
+    concurrency: int = 20,
     id_queue_maxsize: int = 2000,
     polite_sleep_seconds: float = 0.2,
     delete_existing_first: bool = True,

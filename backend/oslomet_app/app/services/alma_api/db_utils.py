@@ -3,6 +3,11 @@ import aiomysql
 
 logger = logging.getLogger(__name__)
 
+import logging
+import aiomysql
+
+logger = logging.getLogger(__name__)
+
 async def slett_eksisterende_data(pool: aiomysql.Pool, year: str) -> None:
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as c:
@@ -17,6 +22,13 @@ async def slett_eksisterende_data(pool: aiomysql.Pool, year: str) -> None:
                     await c.execute("DELETE FROM api_alma_pensumlister WHERE course_year = %s", (year,))
                     await c.execute("DELETE FROM api_alma_referanser WHERE course_year = %s", (year,))
                     await c.execute("DELETE FROM api_alma_kurs_pensumlister_kobling WHERE aar = %s", (year,))
+
+                # --- MIDLERIDIG DEBUG: DB-warnings for delete/truncate-blokken ---
+                await c.execute("SHOW WARNINGS")
+                warns = await c.fetchall()
+                if warns:
+                    print("DB WARNINGS (slett_eksisterende_data):", year, warns[:10])
+                # --- SLUTT DEBUG ---
 
                 await conn.commit()
             except Exception:

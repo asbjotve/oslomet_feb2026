@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.filoversikt.filoversikt_route import router as filoversikt_router
+from app.routes.alma_api.alma_api_route import router as alma_api_router
 
 from app.database.db import get_async_db_pool, close_async_db_pool, get_db_conn_and_cursor
 import aiomysql
@@ -17,6 +18,15 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 
 app = FastAPI()
+
+# ------------------------------------------------------------------------------
+# Demper støy/varsel ved import av dupliserte poster i databasen
+# ------------------------------------------------------------------------------
+import warnings
+
+# Demp MySQL "Duplicate entry ..." warnings fra aiomysql
+warnings.filterwarnings("ignore", message=r"Duplicate entry .*", category=Warning)
+warnings.filterwarnings("ignore", message=r"Duplicate entry .*", category=UserWarning)
 
 # ------------------------------------------------------------------------------
 # Swagger / OpenAPI security (Authorize-knapp)
@@ -170,6 +180,7 @@ async def shutdown_event():
 # Eksterne routes
 # ------------------------------------------------------------------------------
 app.include_router(filoversikt_router)
+app.include_router(alma_api_router)
 
 # ------------------------------------------------------------------------------
 # Endpoints

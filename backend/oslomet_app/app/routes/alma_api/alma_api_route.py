@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import asyncio
+import time
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.helpers.require_token import require_token
+from app.database.db import get_async_db_pool
+from app.services.alma_api.alle_data.hent_alle_data import import_alle_data_queue_worker
+
+router = APIRouter()
+
+# Hindrer at import startes to ganger samtidig i samme uvicorn-prosess.
+_import_lock = asyncio.Lock()
+
+
+@router.post("/alma_api/import", tags=["Alma API"])
+async def alma_import(
+    year: str = Query(..., description="År, kommaseparert liste (f.eks. '2026,2025') eller 'all'"),
+    _deps=Depends(require_token),
+):
+    year_input = (year or "").strip()
+    if not year_input:
+        raise HTTPException(status_code=400, detail="Query-parameter 'year' kan ikke være tom.")
+
+    # Ikke start to importer samtidig i samme prosess
+    if _import_lock.locked():
+        raise HTTPException(status_code=409, detail="Import kjører allerede. Prøv igjen senere.")
+
+    start = time.perf_counter()
+
+    async with _import_lock:
+        pool = await get_async_db_pool()
+
+        try:
+            await import_alle_data_queue_worker(
+                pool=pool,
+                year_input=year_input,
+                concurrency=31,
+                id_queue_maxsize=2000,
+                polite_sleep_seconds=0.2,
+                delete_existing_first=True,
+            )
+
+            elapsed = time.perf_counter() - start
+            return {
+                "status": "ok",
+                "year_input": year_input,
+                "duration_seconds": round(elapsed, 3),
+                "duration_human": str(timedelta(seconds=int(elapsed))),
+            }
+
+        except Exception as e:
+            elapsed = time.perf_counter() - start
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": f"Import feilet: {str(e)}",
+                    "year_input": year_input,
+                    "duration_seconds": round(elapsed, 3),
+                },
+            ) from e
