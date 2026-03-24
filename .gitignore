@@ -6,3 +6,6 @@
 
 # Ignorer __pycache__-mapper (og alt inni) uansett nivå
 __pycache__/
+
+# Ignorerer log-mapper (og alt inni) uansett nivå
+log/
