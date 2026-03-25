@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.helpers.require_token import require_token
 from app.database.db import get_async_db_pool
 from app.services.alma_api.alle_data.hent_alle_data import import_alle_data_queue_worker
+from app.services.alma_api.kurs.oppdater_kurs import oppdater_kurs
 
 router = APIRouter()
 
@@ -62,3 +63,19 @@ async def alma_import(
                     "duration_seconds": round(elapsed, 3),
                 },
             ) from e
+
+
+@router.put("/alma_api/kurs/{kurs_id}", tags=["Alma API"])
+async def alma_kurs_put(
+    kurs_id: str,
+    _deps=Depends(require_token),
+):
+    pool = await get_async_db_pool()
+
+    try:
+        return await oppdater_kurs(pool=pool, kurs_id=kurs_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Oppdatering feilet: {str(e)}", "kurs_id": kurs_id},
+        ) from e
