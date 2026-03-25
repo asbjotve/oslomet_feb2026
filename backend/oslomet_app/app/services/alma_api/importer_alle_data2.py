@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 from typing import Any, Dict, Iterable
 
@@ -59,14 +60,25 @@ async def _print_db_warnings(c, label: str, ctx: dict[str, Any] | None = None) -
 
 
 async def execute_with_retry(c, sql: str, params: tuple, attempts: int = 5) -> None:
+    """
+    Retry for transient MySQL errors under concurrency.
+    - 1213 = deadlock
+    - 1205 = lock wait timeout
+    """
     for i in range(attempts):
         try:
             await c.execute(sql, params)
             return
         except pymysql.err.OperationalError as e:
-            # 1213 = deadlock, 1205 = lock wait timeout
-            if e.args and e.args[0] in (1213, 1205) and i < attempts - 1:
-                await asyncio.sleep(0.2 * (2**i))
+            code = e.args[0] if e.args else None
+            retryable = code in (1213, 1205)
+
+            if retryable and i < attempts - 1:
+                # Low-noise info so you can see that retries happen.
+                logger.info("DB retry code=%s attempt=%s/%s", code, i + 1, attempts)
+
+                # Exponential backoff + jitter to avoid synchronized retries.
+                await asyncio.sleep((0.2 * (2**i)) + random.uniform(0, 0.2))
                 continue
             raise
 
@@ -251,6 +263,7 @@ async def insert_to_db(pool: aiomysql.Pool, course_json: Dict[str, Any]) -> None
                                 rl_aarsem,
                                 rl_owner_url,
                             ),
+                            attempts=5,
                         )
                         await _print_db_warnings(c, "api_alma_pensumlister", {"course_id": c_id, "rl_id": rl_id})
                     except Exception:
@@ -362,8 +375,6 @@ async def insert_to_db(pool: aiomysql.Pool, course_json: Dict[str, Any]) -> None
                             ref_publication_date,
                         )
 
-                        # NB: denne "year" er referanse-year (fra metadata), ikke course_year
-                        #ref_year = extract_numbers(get_nested(ref, ["metadata", "year"])) // GAMMEL KODE, SOM FÅRÅRSAKER NOE FEIL
                         raw_ref_year = get_nested(ref, ["metadata", "year"])
                         m = re.search(r"\b(1[4-9]\d{2}|20\d{2}|21\d{2})\b", str(raw_ref_year or ""))
                         ref_year = int(m.group(1)) if m else 0

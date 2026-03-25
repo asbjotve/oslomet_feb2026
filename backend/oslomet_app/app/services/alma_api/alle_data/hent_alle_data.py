@@ -27,13 +27,12 @@ HEADERS = {
 }
 
 # ---------------------------- Tuning knobs -----------------------------------
-# Workers som både henter course details og skriver til DB
 DEFAULT_WORKER_CONCURRENCY = 31
 
-# Maks samtidige Alma-kall for course details
+# Max samtidige Alma-kall for course details
 HTTP_CONCURRENCY_DETAILS = 25
 
-# Maks samtidige Alma-kall for listing/paging (q=year~..., offset paging)
+# Max samtidige Alma-kall for listing/paging
 HTTP_CONCURRENCY_LISTING = 2  # 1-3 er typisk bra
 
 # Litt pacing for å unngå bursts (sekunder). 0.0 = av
@@ -118,12 +117,6 @@ async def _sleep_backoff_with_jitter(
     max_delay: float,
     jitter: float,
 ) -> None:
-    """
-    Exponential backoff + full jitter.
-
-    delay = min(max_delay, base_delay * 2**(attempt-1))
-    sleep = U(0, delay) + U(0, jitter)
-    """
     delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
     sleep_s = random.uniform(0, delay) + random.uniform(0, jitter)
     await asyncio.sleep(sleep_s)
@@ -156,9 +149,9 @@ async def get_json_with_retry(
                     return await resp.json()
 
                 body = await resp.text()
+                body_one_line = " ".join(body.split())
 
                 if resp.status in retry_statuses:
-                    # Listing/paging 429 bør ikke spame stdout: send til dedicated logger
                     retry_logger.info(
                         "GET retry attempt=%s/%s status=%s url=%s params=%s body=%s",
                         attempt,
@@ -166,7 +159,7 @@ async def get_json_with_retry(
                         resp.status,
                         url,
                         params,
-                        body[:200],
+                        body_one_line[:200],
                     )
 
                     retry_after = _parse_retry_after_seconds(resp)
@@ -181,7 +174,7 @@ async def get_json_with_retry(
                         )
                     continue
 
-                raise RuntimeError(f"GET {url} feilet: status={resp.status}, body={body[:500]}")
+                raise RuntimeError(f"GET {url} feilet: status={resp.status}, body={body_one_line[:500]}")
 
     raise RuntimeError(f"GET {url} feilet etter {max_attempts} forsøk (params={params})")
 
@@ -200,10 +193,6 @@ async def get_total_record_count(
         params=params,
         http_sem=http_sem_listing,
         retry_logger=alma429_list_logger,
-        # listing: tregere, mer tålmodig
-        initial_delay_seconds=4.0,
-        max_delay_seconds=120.0,
-        jitter_seconds=2.0,
     )
     return int(data["total_record_count"])
 
@@ -240,10 +229,6 @@ async def fetch_course_ids_page(
         params=params,
         http_sem=http_sem_listing,
         retry_logger=alma429_list_logger,
-        # listing: tregere, mer tålmodig
-        initial_delay_seconds=4.0,
-        max_delay_seconds=120.0,
-        jitter_seconds=2.0,
     )
 
     ids: List[str] = []
@@ -279,7 +264,6 @@ async def produce_course_ids_to_queue(
             await id_queue.put(cid)
             produced += 1
 
-        # ekstra høflig pause mellom pages for "all"
         if polite_sleep_seconds:
             await asyncio.sleep(polite_sleep_seconds)
 
@@ -291,11 +275,14 @@ async def fetch_course_detail_with_retry(
     course_id: str,
     *,
     http_sem_details: asyncio.Semaphore | None = None,
-    max_attempts: int = 5,
+    max_attempts: int = 10,
     initial_delay_seconds: float = 2.0,
-    max_delay_seconds: float = 60.0,
+    max_delay_seconds: float = 125.0,
     jitter_seconds: float = 1.0,
-) -> Optional[Dict[str, Any]]:
+) -> tuple[Optional[Dict[str, Any]], bool]:
+    """
+    Returns: (course_json | None, gave_up_due_to_429: bool)
+    """
     url = f"{BASE_URL}/{course_id}"
     params = {"view": "full"}
     sem_cm = http_sem_details if http_sem_details is not None else contextlib.nullcontext()
@@ -307,12 +294,12 @@ async def fetch_course_detail_with_retry(
         async with sem_cm:
             async with session.get(url, headers=HEADERS, params=params) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    return await resp.json(), False
 
                 body = await resp.text()
+                body_one_line = " ".join(body.split())
 
                 if resp.status == 429:
-                    # 429 for detail går til egen fil, som info (ikke stdout)
                     alma429_logger.info("429 attempt=%s/%s course_id=%s", attempt, max_attempts, course_id)
 
                     retry_after = _parse_retry_after_seconds(resp)
@@ -327,13 +314,11 @@ async def fetch_course_detail_with_retry(
                         )
                     continue
 
-                # Ikke-429: behold i normal logger (signal)
-                logger.warning("Hopper over course_id=%s status=%s body=%s", course_id, resp.status, body[:200])
-                return None
+                logger.warning("Hopper over course_id=%s status=%s body=%s", course_id, resp.status, body_one_line[:200])
+                return None, False
 
-    # Hard fail etter retries (signal til stdout)
     logger.warning("Hopper over course_id=%s etter %s forsøk (429)", course_id, max_attempts)
-    return None
+    return None, True
 
 
 async def fetch_and_insert_worker(
@@ -344,6 +329,8 @@ async def fetch_and_insert_worker(
     *,
     year: Optional[str],
     http_sem_details: asyncio.Semaphore | None = None,
+    skipped_429: dict[str, int] | None = None,
+    skipped_429_lock: asyncio.Lock | None = None,
 ) -> None:
     while True:
         course_id = await id_queue.get()
@@ -351,7 +338,16 @@ async def fetch_and_insert_worker(
             if course_id is None:
                 return
 
-            course_json = await fetch_course_detail_with_retry(session, course_id, http_sem_details=http_sem_details)
+            course_json, gave_up_429 = await fetch_course_detail_with_retry(
+                session,
+                course_id,
+                http_sem_details=http_sem_details,
+            )
+
+            if gave_up_429 and skipped_429 is not None and skipped_429_lock is not None:
+                async with skipped_429_lock:
+                    skipped_429["count"] += 1
+
             if course_json is None:
                 continue
 
@@ -379,7 +375,9 @@ async def run_import_for_one_year_queue_worker(
 
     id_queue: asyncio.Queue[Optional[str]] = asyncio.Queue(maxsize=id_queue_maxsize)
 
-    # Separate semaphores: listing rolig, details høyere throughput
+    skipped_429: dict[str, int] = {"count": 0}
+    skipped_429_lock = asyncio.Lock()
+
     http_sem_details = asyncio.Semaphore(HTTP_CONCURRENCY_DETAILS)
     http_sem_listing = asyncio.Semaphore(HTTP_CONCURRENCY_LISTING)
 
@@ -393,6 +391,8 @@ async def run_import_for_one_year_queue_worker(
                     id_queue=id_queue,
                     year=year,
                     http_sem_details=http_sem_details,
+                    skipped_429=skipped_429,
+                    skipped_429_lock=skipped_429_lock,
                 )
             )
             for i in range(concurrency)
@@ -416,6 +416,8 @@ async def run_import_for_one_year_queue_worker(
                 await id_queue.put(None)
 
             await asyncio.gather(*workers, return_exceptions=True)
+
+            logger.warning("[year=%s] Skipped courses due to 429: %s", year, skipped_429["count"])
 
         finally:
             if not producer_task.done():
