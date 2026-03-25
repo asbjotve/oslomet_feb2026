@@ -18,7 +18,7 @@ from config.config import settings
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses"
+BASE_URL = "https://api-eu.hosted.exlibrisgroup.com/almaws/v1/courses"
 PAGE_SIZE = 100
 
 HEADERS = {
