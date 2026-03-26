@@ -98,3 +98,24 @@ async def alma_pensumliste_put(
             status_code=500,
             detail={"message": f"Oppdatering feilet: {str(e)}", "pensumliste_id": pensumliste_id},
         ) from e
+
+@router.put("/alma_api/pensumliste/{pensumliste_id}/referanser", tags=["Alma API"])
+async def alma_pensumliste_referanser_put(
+    pensumliste_id: str,
+    _deps=Depends(require_token),
+):
+    pool = await get_async_db_pool()
+
+    try:
+        return await sync_referanser_for_pensumliste(pool=pool, pensumliste_id=pensumliste_id)
+    except LookupError as e:
+        # DB-oppslag feiler eller pensumlisten finnes ikke i Alma-responsen
+        raise HTTPException(
+            status_code=404,
+            detail={"message": str(e), "pensumliste_id": pensumliste_id},
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Oppdatering feilet: {str(e)}", "pensumliste_id": pensumliste_id},
+        ) from e
