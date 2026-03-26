@@ -38,6 +38,9 @@ HEADERS = {"Accept": "application/json", "Authorization": f"apikey {settings.ALM
 HTTP_PACING_SECONDS = 0.02
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 
+# Default: av (sett True midlertidig ved feilsøking)
+DEBUG_SQL_PARAMS = False
+
 
 # ----------------------------- HTTP helpers ----------------------------------
 
@@ -166,7 +169,6 @@ def _extract_referanse_row(
     course_year: int,
     aarsem: str,
 ) -> Dict[str, Any]:
-    # (samme mapping som importer_alle_data2)
     ref_id = safe(ref.get("id"))
     ref_status = json.dumps(get_nested(ref, ["status"])) if get_nested(ref, ["status"]) is not None else None
     ref_copyrights_status = get_nested(ref, ["copyrights_status", "value"])
@@ -243,7 +245,7 @@ def _extract_referanse_row(
         ref_chapter_title,
         ref_chapter_author,
         ref_chapter,
-        strip_tags(get_nested(ref, ["public_note"])),
+        ref_public_note,
         ref_publication_date,
     )
 
@@ -281,7 +283,7 @@ def _extract_referanse_row(
         ref_sam_sideangivelse,
         ref_year,
         ref_publication_date,
-        strip_tags(get_nested(ref, ["public_note"])),
+        ref_public_note,
         ref_chapter_title,
         ref_chapter,
         ref_chapter_author,
@@ -307,7 +309,7 @@ def _extract_referanse_row(
         "leganto_permalink": ref_leganto_permalink,
         "file_link": ref_file_link,
         "file_link_filendelse": ref_file_link_filendelse,
-        "public_note": strip_tags(get_nested(ref, ["public_note"])),
+        "public_note": ref_public_note,
         "note": ref_note,
         "license_type": ref_license_type,
         "last_modified_date": ref_last_modified_date,
@@ -372,181 +374,125 @@ def _extract_referanse_row(
     }
 
 
-# ----------------------------- UPSERT SQL ------------------------------------
+# ----------------------------- UPSERT (robust) -------------------------------
 
-_UPSERT_SQL_API_ALMA_REFERANSER = """
-INSERT INTO api_alma_referanser (
-    id, status, copyrights_status, material_type, leganto_permalink, file_link, file_link_filendelse,
-    public_note, note, license_type, last_modified_date, title, aarsem, author, publisher, publication_date,
-    edition, isbn, issn, mms_id, additional_person_name, place_of_publication, metadata_note, journal_title,
-    article_title, kurs_id, pensumliste_id, citation_tags, year, issue, editor, chapter, chapter_title, chapter_author,
-    pages, doi, volume, start_page, end_page, start_page2, end_page2, start_page3, end_page3,
-    start_page4, end_page4, start_page5, end_page5, start_page6, end_page6,
-    start_page7, end_page7, start_page8, end_page8, start_page9, end_page9,
-    start_page10, end_page10, unik_bok_id, unik_utdrag_id, course_year, referanse_endringssjekk_json, indikator_vaar_fil,
-    kommentar, sammensatt_sideangivelse, secondary_type, map_secondary_type, bolk_tag, bolk_rapp_indikator, isbnkommentar_indi
-) VALUES (
-    %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s,
-    %s, %s, %s, %s, %s, %s, %s, %s, %s
-)
-ON DUPLICATE KEY UPDATE
-    status=VALUES(status),
-    copyrights_status=VALUES(copyrights_status),
-    material_type=VALUES(material_type),
-    leganto_permalink=VALUES(leganto_permalink),
-    file_link=VALUES(file_link),
-    file_link_filendelse=VALUES(file_link_filendelse),
-    public_note=VALUES(public_note),
-    note=VALUES(note),
-    license_type=VALUES(license_type),
-    last_modified_date=VALUES(last_modified_date),
-    title=VALUES(title),
-    aarsem=VALUES(aarsem),
-    author=VALUES(author),
-    publisher=VALUES(publisher),
-    publication_date=VALUES(publication_date),
-    edition=VALUES(edition),
-    isbn=VALUES(isbn),
-    issn=VALUES(issn),
-    mms_id=VALUES(mms_id),
-    additional_person_name=VALUES(additional_person_name),
-    place_of_publication=VALUES(place_of_publication),
-    metadata_note=VALUES(metadata_note),
-    journal_title=VALUES(journal_title),
-    article_title=VALUES(article_title),
-    kurs_id=VALUES(kurs_id),
-    pensumliste_id=VALUES(pensumliste_id),
-    citation_tags=VALUES(citation_tags),
-    year=VALUES(year),
-    issue=VALUES(issue),
-    editor=VALUES(editor),
-    chapter=VALUES(chapter),
-    chapter_title=VALUES(chapter_title),
-    chapter_author=VALUES(chapter_author),
-    pages=VALUES(pages),
-    doi=VALUES(doi),
-    volume=VALUES(volume),
-    start_page=VALUES(start_page),
-    end_page=VALUES(end_page),
-    start_page2=VALUES(start_page2),
-    end_page2=VALUES(end_page2),
-    start_page3=VALUES(start_page3),
-    end_page3=VALUES(end_page3),
-    start_page4=VALUES(start_page4),
-    end_page4=VALUES(end_page4),
-    start_page5=VALUES(start_page5),
-    end_page5=VALUES(end_page5),
-    start_page6=VALUES(start_page6),
-    end_page6=VALUES(end_page6),
-    start_page7=VALUES(start_page7),
-    end_page7=VALUES(end_page7),
-    start_page8=VALUES(start_page8),
-    end_page8=VALUES(end_page8),
-    start_page9=VALUES(start_page9),
-    end_page9=VALUES(end_page9),
-    start_page10=VALUES(start_page10),
-    end_page10=VALUES(end_page10),
-    unik_bok_id=VALUES(unik_bok_id),
-    unik_utdrag_id=VALUES(unik_utdrag_id),
-    course_year=VALUES(course_year),
-    referanse_endringssjekk_json=VALUES(referanse_endringssjekk_json),
-    indikator_vaar_fil=VALUES(indikator_vaar_fil),
-    kommentar=VALUES(kommentar),
-    sammensatt_sideangivelse=VALUES(sammensatt_sideangivelse),
-    secondary_type=VALUES(secondary_type),
-    map_secondary_type=VALUES(map_secondary_type),
-    bolk_tag=VALUES(bolk_tag),
-    bolk_rapp_indikator=VALUES(bolk_rapp_indikator),
-    isbnkommentar_indi=VALUES(isbnkommentar_indi)
-"""
+_API_ALMA_REFERANSER_COLUMNS = [
+    "id",
+    "status",
+    "copyrights_status",
+    "material_type",
+    "leganto_permalink",
+    "file_link",
+    "file_link_filendelse",
+    "public_note",
+    "note",
+    "license_type",
+    "last_modified_date",
+    "title",
+    "aarsem",
+    "author",
+    "publisher",
+    "publication_date",
+    "edition",
+    "isbn",
+    "issn",
+    "mms_id",
+    "additional_person_name",
+    "place_of_publication",
+    "metadata_note",
+    "journal_title",
+    "article_title",
+    "kurs_id",
+    "pensumliste_id",
+    "citation_tags",
+    "year",
+    "issue",
+    "editor",
+    "chapter",
+    "chapter_title",
+    "chapter_author",
+    "pages",
+    "doi",
+    "volume",
+    "start_page",
+    "end_page",
+    "start_page2",
+    "end_page2",
+    "start_page3",
+    "end_page3",
+    "start_page4",
+    "end_page4",
+    "start_page5",
+    "end_page5",
+    "start_page6",
+    "end_page6",
+    "start_page7",
+    "end_page7",
+    "start_page8",
+    "end_page8",
+    "start_page9",
+    "end_page9",
+    "start_page10",
+    "end_page10",
+    "unik_bok_id",
+    "unik_utdrag_id",
+    "course_year",
+    "referanse_endringssjekk_json",
+    "indikator_vaar_fil",
+    "kommentar",
+    "sammensatt_sideangivelse",
+    "secondary_type",
+    "map_secondary_type",
+    "bolk_tag",
+    "bolk_rapp_indikator",
+    "isbnkommentar_indi",
+]
+
+
+def _build_upsert_sql() -> str:
+    cols = _API_ALMA_REFERANSER_COLUMNS
+    col_list = ", ".join(cols)
+    placeholders = ", ".join(["%s"] * len(cols))
+    update_cols = [c for c in cols if c != "id"]
+    update_list = ",\n        ".join([f"{c}=VALUES({c})" for c in update_cols])
+
+    return f"""
+    INSERT INTO api_alma_referanser (
+        {col_list}
+    ) VALUES (
+        {placeholders}
+    )
+    ON DUPLICATE KEY UPDATE
+        {update_list}
+    """
+
+
+_UPSERT_SQL_API_ALMA_REFERANSER = _build_upsert_sql()
 
 
 def _upsert_params_from_row(r: Dict[str, Any]) -> tuple:
-    return (
-        r["id"],
-        r["status"],
-        r["copyrights_status"],
-        r["material_type"],
-        r["leganto_permalink"],
-        r["file_link"],
-        r["file_link_filendelse"],
-        r["public_note"],
-        r["note"],
-        r["license_type"],
-        r["last_modified_date"],
-        r["title"],
-        r["aarsem"],
-        r["author"],
-        r["publisher"],
-        r["publication_date"],
-        r["edition"],
-        r["isbn"],
-        r["issn"],
-        r["mms_id"],
-        r["additional_person_name"],
-        r["place_of_publication"],
-        r["metadata_note"],
-        r["journal_title"],
-        r["article_title"],
-        r["kurs_id"],
-        r["pensumliste_id"],
-        r["citation_tags"],
-        r["year"],
-        r["issue"],
-        r["editor"],
-        r["chapter"],
-        r["chapter_title"],
-        r["chapter_author"],
-        r["pages"],
-        r["doi"],
-        r["volume"],
-        r["start_page"],
-        r["end_page"],
-        r["start_page2"],
-        r["end_page2"],
-        r["start_page3"],
-        r["end_page3"],
-        r["start_page4"],
-        r["end_page4"],
-        r["start_page5"],
-        r["end_page5"],
-        r["start_page6"],
-        r["end_page6"],
-        r["start_page7"],
-        r["end_page7"],
-        r["start_page8"],
-        r["end_page8"],
-        r["start_page9"],
-        r["end_page9"],
-        r["start_page10"],
-        r["end_page10"],
-        r["unik_bok_id"],
-        r["unik_utdrag_id"],
-        r["course_year"],
-        r["referanse_endringssjekk_json"],
-        r["indikator_vaar_fil"],
-        r["kommentar"],
-        r["sammensatt_sideangivelse"],
-        r["secondary_type"],
-        r["map_secondary_type"],
-        r["bolk_tag"],
-        r["bolk_rapp_indikator"],
-        r["isbnkommentar_indi"],
-    )
+    if DEBUG_SQL_PARAMS:
+        missing = [c for c in _API_ALMA_REFERANSER_COLUMNS if c not in r]
+        extra = [k for k in r.keys() if k not in set(_API_ALMA_REFERANSER_COLUMNS)]
+        placeholders = _UPSERT_SQL_API_ALMA_REFERANSER.count("%s")
+
+        logger.info("DEBUG placeholders=%s expected_params=%s", placeholders, len(_API_ALMA_REFERANSER_COLUMNS))
+        if missing:
+            logger.error("DEBUG row mangler keys: %s", missing)
+        if extra:
+            logger.warning("DEBUG row har ekstra keys (ignoreres): %s", extra)
+
+    return tuple(r.get(col) for col in _API_ALMA_REFERANSER_COLUMNS)
 
 
 # ------------------------------ Main -----------------------------------------
 
 async def sync_referanser_for_pensumliste(pool: aiomysql.Pool, pensumliste_id: str) -> Dict[str, Any]:
     """
-    Default: hard-delete av referanser i DB som ikke finnes i Alma lenger.
+    Sync alle referanser i en pensumliste:
+    - Hard-delete i DB av referanser som ikke finnes i Alma lenger (default)
+    - Upsert alle referanser som finnes i Alma nå
+    Oppdaterer ikke kurs/pensumliste-data, kun api_alma_referanser.
     """
     kurs_id = await get_kurs_id_for_pensumliste(pool, pensumliste_id)
 
@@ -571,7 +517,7 @@ async def sync_referanser_for_pensumliste(pool: aiomysql.Pool, pensumliste_id: s
     async with pool.acquire() as conn:
         async with conn.cursor() as c:
             try:
-                # DB ids for denne pensumlisten
+                # 1) DB ids for denne pensumlisten
                 await c.execute(
                     "SELECT id FROM api_alma_referanser WHERE pensumliste_id = %s",
                     (pensumliste_id,),
@@ -579,7 +525,7 @@ async def sync_referanser_for_pensumliste(pool: aiomysql.Pool, pensumliste_id: s
                 rows = await c.fetchall()
                 db_ids: Set[str] = {str(r[0]) for r in rows if r and r[0] is not None}
 
-                # Hard delete: de som finnes i DB, men ikke i Alma
+                # 2) Hard delete: de som finnes i DB, men ikke i Alma
                 to_delete = sorted(db_ids - alma_ids)
                 if to_delete:
                     chunk_size = 500
@@ -591,9 +537,9 @@ async def sync_referanser_for_pensumliste(pool: aiomysql.Pool, pensumliste_id: s
                             "WHERE pensumliste_id = %s AND id IN (" + placeholders + ")"
                         )
                         await c.execute(sql, (pensumliste_id, *chunk))
-                        deleted += c.rowcount
+                        deleted += int(c.rowcount or 0)
 
-                # Upsert alle Alma-referanser
+                # 3) Upsert alle Alma-referanser
                 for ref in citations:
                     ref_id = safe(ref.get("id"))
                     if not ref_id:
@@ -606,7 +552,21 @@ async def sync_referanser_for_pensumliste(pool: aiomysql.Pool, pensumliste_id: s
                         course_year=course_year,
                         aarsem=aarsem,
                     )
-                    await c.execute(_UPSERT_SQL_API_ALMA_REFERANSER, _upsert_params_from_row(row))
+
+                    params = _upsert_params_from_row(row)
+
+                    if DEBUG_SQL_PARAMS:
+                        placeholders_cnt = _UPSERT_SQL_API_ALMA_REFERANSER.count("%s")
+                        if placeholders_cnt != len(params):
+                            logger.error(
+                                "MISMATCH placeholders(%s) != params(%s) ref_id=%s pensumliste_id=%s",
+                                placeholders_cnt,
+                                len(params),
+                                ref_id,
+                                pensumliste_id,
+                            )
+
+                    await c.execute(_UPSERT_SQL_API_ALMA_REFERANSER, params)
                     upserted += 1
 
                 await conn.commit()
