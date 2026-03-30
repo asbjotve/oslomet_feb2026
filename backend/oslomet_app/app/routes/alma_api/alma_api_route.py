@@ -27,11 +27,21 @@ router = APIRouter()
 _import_lock = asyncio.Lock()
 
 
-@router.post("/alma_api/import", tags=["Alma API"])
+@router.post("/alma_api/import", tags=["Alma API"], summary="Importer data fra ExLibris Alma")
 async def alma_import(
     year: str = Query(..., description="År, kommaseparert liste (f.eks. '2026,2025') eller 'all'"),
     _deps=Depends(require_token),
 ):
+    """
+    Importerer data fra ExLibris Alma til lokal database - via Alma sitt API.
+
+    - Krever autentisering
+    - År som ønskes å importeres må oppgis. År kan angis slik (uten hermetegn):
+      - 2026
+      - 2024, 2025 (flere år kan angis, adskilt med komma)
+      - all — dette importerer ALLE data uavhengig av årstall kurset er for.
+    """
+
     year_input = (year or "").strip()
     if not year_input:
         raise HTTPException(status_code=400, detail="Query-parameter 'year' kan ikke være tom.")
@@ -75,82 +85,24 @@ async def alma_import(
             ) from e
 
 
-@router.put("/alma_api/kurs/{kurs_id}", tags=["Alma API"])
-async def alma_kurs_put(
-    kurs_id: str,
-    _deps=Depends(require_token),
-):
-    pool = await get_async_db_pool()
-
-    try:
-        return await oppdater_kurs(pool=pool, kurs_id=kurs_id)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={"message": f"Oppdatering feilet: {str(e)}", "kurs_id": kurs_id},
-        ) from e
-
-@router.put("/alma_api/pensumliste/{pensumliste_id}", tags=["Alma API"])
-async def alma_pensumliste_put(
-    pensumliste_id: str,
-    _deps=Depends(require_token),
-):
-    pool = await get_async_db_pool()
-
-    try:
-        return await oppdater_pensumliste(pool=pool, pensumliste_id=pensumliste_id)
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail={"message": str(e), "pensumliste_id": pensumliste_id}) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={"message": f"Oppdatering feilet: {str(e)}", "pensumliste_id": pensumliste_id},
-        ) from e
-
-@router.put("/alma_api/pensumliste/{pensumliste_id}/referanser", tags=["Alma API"])
-async def alma_pensumliste_referanser_put(
-    pensumliste_id: str,
-    _deps=Depends(require_token),
-):
-    pool = await get_async_db_pool()
-
-    try:
-        return await sync_referanser_for_pensumliste(pool=pool, pensumliste_id=pensumliste_id)
-    except LookupError as e:
-        # DB-oppslag feiler eller pensumlisten finnes ikke i Alma-responsen
-        raise HTTPException(
-            status_code=404,
-            detail={"message": str(e), "pensumliste_id": pensumliste_id},
-        ) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={"message": f"Oppdatering feilet: {str(e)}", "pensumliste_id": pensumliste_id},
-        ) from e
-
-
-@router.put("/alma_api/referanse/{referanse_id}", tags=["Alma API"])
-async def alma_referanse_put(
-    referanse_id: str,
-    _deps=Depends(require_token),
-):
-    pool = await get_async_db_pool()
-
-    try:
-        return await oppdater_referanse(pool=pool, referanse_id=referanse_id)
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail={"message": str(e), "referanse_id": referanse_id}) from e
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail={"message": f"Oppdatering feilet: {str(e)}", "referanse_id": referanse_id},
-        ) from e
-
-@router.post("/alma_api/hent_instructors", tags=["Alma API"])
+@router.post("/alma_api/hent_instructors", tags=["Alma API"], summary="Importer instructor-data fra ExLibris Alma")
 async def oppdater_instructors(
     year: str = Query(..., description="År, kommaseparert liste, eller 'all'"),
     deps=Depends(require_token),
 ) -> dict[str, Any]:
+    """
+    Importerer instructors fra ExLibris Alma til lokal database - via Alma sitt API
+
+    - Krever autentisering
+    - Krever at data om kurs/pensumlister allerede er innhentet for det/de år man ønsker instructor-data for
+
+
+    - År som ønskes å importeres må oppgis. År kan angis slik (uten hermetegn):
+      - 2026
+      - 2024, 2025 (flere år kan angis, adskilt med komma)
+      - all — dette importerer ALLE data uavhengig av årstall kurset er for.
+    """
+
     years = normalize_years_input(year)
     pool = await get_async_db_pool()
 
@@ -169,11 +121,43 @@ async def oppdater_instructors(
     # OPTIMIZE TABLE: anbefales ikke i request-path i prod. Flytt til admin-jobb/cron.
     return {"resultater": resultater}
 
-@router.put("/alma_api/kurs/by_pensumliste/{pensumliste_id}", tags=["Alma API"])
+
+@router.put("/alma_api/kurs/{kurs_id}", tags=["Alma API"], summary="Oppdater kursdata fra ExLibris Alma")
+async def alma_kurs_put(
+    kurs_id: str,
+    _deps=Depends(require_token),
+):
+    """
+    Oppdaterer data om kurs i lokal database fra ExLibris Alma - via Alma sitt API
+
+    - Krever autentisering
+    - Krever oppgitt kurs-ID
+    """
+
+    pool = await get_async_db_pool()
+
+    try:
+        return await oppdater_kurs(pool=pool, kurs_id=kurs_id)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Oppdatering feilet: {str(e)}", "kurs_id": kurs_id},
+        ) from e
+
+
+@router.put("/alma_api/kurs/by_pensumliste/{pensumliste_id}", tags=["Alma API"], summary="Oppdater kursdata fra ExLibris Alma")
 async def alma_kurs_by_pensumliste_put(
     pensumliste_id: str,
     _deps=Depends(require_token),
 ):
+    """
+    Oppdaterer data om kurs i lokal database fra ExLibris Alma - via Alma sitt API
+
+    - Krever autentisering
+    - Krever oppgitt pensumliste-ID
+    - kurs-ID hentes fra lokal database via api_alma_pensumlister-tabellen
+    """
+
     pool = await get_async_db_pool()
 
     try:
@@ -206,4 +190,82 @@ async def alma_kurs_by_pensumliste_put(
                 "message": f"Oppdatering feilet: {str(e)}",
                 "pensumliste_id": pensumliste_id,
             },
+        ) from e
+
+
+@router.put("/alma_api/pensumliste/{pensumliste_id}", tags=["Alma API"], summary="Oppdater pensumliste-data fra ExLibris Alma")
+async def alma_pensumliste_put(
+    pensumliste_id: str,
+    _deps=Depends(require_token),
+):
+    """
+    Oppdaterer pensumliste-data i lokal database med data fra ExLibris Alma - via Alma sitt API
+
+    - Krever autentisering
+    - Pensumliste-ID må oppgis (og det forutsettes at pensumlisten allerede eksisterer i lokal database)
+    """
+
+    pool = await get_async_db_pool()
+
+    try:
+        return await oppdater_pensumliste(pool=pool, pensumliste_id=pensumliste_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail={"message": str(e), "pensumliste_id": pensumliste_id}) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Oppdatering feilet: {str(e)}", "pensumliste_id": pensumliste_id},
+        ) from e
+
+@router.put("/alma_api/pensumliste/{pensumliste_id}/referanser", tags=["Alma API"], summary="Oppdater/hent referanser fra ExLibris Alma")
+async def alma_pensumliste_referanser_put(
+    pensumliste_id: str,
+    _deps=Depends(require_token),
+):
+    """
+    Oppdaterer referanse-data i en gitt pensumliste i lokal database med data fra ExLibris Alma - via Alma sitt API
+
+    - Krever autentisering
+    - Krever Pensumliste-ID (og det forutsettes at pensumlisten allerede eksisterer i lokal database)
+    """
+
+    pool = await get_async_db_pool()
+
+    try:
+        return await sync_referanser_for_pensumliste(pool=pool, pensumliste_id=pensumliste_id)
+    except LookupError as e:
+        # DB-oppslag feiler eller pensumlisten finnes ikke i Alma-responsen
+        raise HTTPException(
+            status_code=404,
+            detail={"message": str(e), "pensumliste_id": pensumliste_id},
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Oppdatering feilet: {str(e)}", "pensumliste_id": pensumliste_id},
+        ) from e
+
+
+@router.put("/alma_api/referanse/{referanse_id}", tags=["Alma API"], summary="Oppdater/hent referanse fra ExLibris Alma")
+async def alma_referanse_put(
+    referanse_id: str,
+    _deps=Depends(require_token),
+):
+    """
+    Oppdaterer en enkelt-referanse i lokal database med data fra ExLibris Alma - via Alma sitt API
+
+    - Krever autentisering
+    - Krever Referanse-ID (og det forutsettes at referansen allerede eksisterer i lokal database)
+    """
+
+    pool = await get_async_db_pool()
+
+    try:
+        return await oppdater_referanse(pool=pool, referanse_id=referanse_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail={"message": str(e), "referanse_id": referanse_id}) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": f"Oppdatering feilet: {str(e)}", "referanse_id": referanse_id},
         ) from e
