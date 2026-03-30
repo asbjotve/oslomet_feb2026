@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
 import asyncio
 import time
 from datetime import timedelta
+import aiomysql
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Any, Optional
 
 from app.helpers.require_token import require_token
+from app.helpers.alma_api import get_url_list, normalize_years_input
+
 from app.database.db import get_async_db_pool
 
 from app.services.alma_api.alle_data.hent_alle_data import import_alle_data_queue_worker
@@ -14,6 +19,7 @@ from app.services.alma_api.kurs.oppdater_kurs import oppdater_kurs
 from app.services.alma_api.pensumlister.oppdater_pensumliste import oppdater_pensumliste
 from app.services.alma_api.referanser.sync_referanser_for_pensumliste import sync_referanser_for_pensumliste
 from app.services.alma_api.referanser.oppdater_referanse import oppdater_referanse
+from app.services.alma_api.instructors.hent_instructors import process_instructors_urls
 
 router = APIRouter()
 
@@ -138,4 +144,66 @@ async def alma_referanse_put(
         raise HTTPException(
             status_code=500,
             detail={"message": f"Oppdatering feilet: {str(e)}", "referanse_id": referanse_id},
+        ) from e
+
+@router.post("/alma_api/hent_instructors", tags=["Alma API"])
+async def oppdater_instructors(
+    year: str = Query(..., description="År, kommaseparert liste, eller 'all'"),
+    deps=Depends(require_token),
+) -> dict[str, Any]:
+    years = normalize_years_input(year)
+    pool = await get_async_db_pool()
+
+    resultater: list[dict[str, Any]] = []
+
+    for y in years:
+        y_label = "ALL" if y is None else y
+        try:
+            url_list = await get_url_list(pool, "all" if y is None else y)
+            stats = await process_instructors_urls(url_list, pool)
+            resultater.append({"year": y_label, "status": "ok", "stats": stats})
+        except Exception as e:
+            logger.exception("oppdater_instructors feilet year=%s", y_label)
+            resultater.append({"year": y_label, "status": "error", "error": str(e)})
+
+    # OPTIMIZE TABLE: anbefales ikke i request-path i prod. Flytt til admin-jobb/cron.
+    return {"resultater": resultater}
+
+@router.put("/alma_api/kurs/by_pensumliste/{pensumliste_id}", tags=["Alma API"])
+async def alma_kurs_by_pensumliste_put(
+    pensumliste_id: str,
+    _deps=Depends(require_token),
+):
+    pool = await get_async_db_pool()
+
+    try:
+        # Slå opp kurs_id basert på pensumliste_id
+        async with pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as c:
+                await c.execute(
+                    "SELECT kurs_id FROM api_alma_pensumlister WHERE id = %s LIMIT 1",
+                    (pensumliste_id,),
+                )
+                row = await c.fetchone()
+
+        if not row or not row.get("kurs_id"):
+            raise HTTPException(
+                status_code=404,
+                detail={"message": "Fant ikke kurs_id for pensumliste_id", "pensumliste_id": pensumliste_id},
+            )
+
+        kurs_id = str(row["kurs_id"])
+
+        # Gjenbruk eksisterende service
+        return await oppdater_kurs(pool=pool, kurs_id=kurs_id)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Oppdatering feilet: {str(e)}",
+                "pensumliste_id": pensumliste_id,
+            },
         ) from e
