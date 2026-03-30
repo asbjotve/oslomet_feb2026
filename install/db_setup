@@ -2,6 +2,9 @@ CREATE TABLE IF NOT EXISISTS db_oslomet;
 
 use db_oslomet;
 
+##########################################################
+# HOVEDTABELLER API-APPLIKASJON
+##########################################################
 CREATE TABLE IF NOT EXISTS api_alma_instructors (
  id varchar(40) NOT NULL,
  owner text NOT NULL,
@@ -155,6 +158,10 @@ CREATE TABLE IF NOT EXISTS api_alma_referanser (
  PRIMARY KEY (id),
  KEY idx_secondary_type (secondary_type(255))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_danish_ci;
+
+##########################################################
+# HJELPETABELLER (VIEWS) API-APPLIKASJON
+##########################################################
 
 CREATE VIEW IF NOT EXISTS referansesjekk_utdrag AS
 SELECT
