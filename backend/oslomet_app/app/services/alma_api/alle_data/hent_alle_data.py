@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 import aiomysql
 
+from app.helpers.alma_api import normalize_years_input
+
 from app.services.alma_api.db_utils import slett_eksisterende_data
 from app.services.alma_api.importer_alle_data2 import insert_to_db
 from config.config import settings
@@ -64,29 +66,6 @@ def _make_rotating_file_logger(name: str, path: str, level: int = logging.INFO) 
 alma429_logger = _make_rotating_file_logger("alma429", DETAIL_429_LOG_PATH, logging.INFO)
 alma429_list_logger = _make_rotating_file_logger("alma429.list", LIST_429_LOG_PATH, logging.INFO)
 # -----------------------------------------------------------------------------
-
-
-def normalize_years_input(year_input: str) -> List[Optional[str]]:
-    if year_input is None:
-        raise ValueError("year_input kan ikke være None")
-
-    raw = year_input.strip()
-    if not raw:
-        raise ValueError("year_input kan ikke være tom")
-
-    if raw.lower() == "all":
-        return [None]
-
-    years = [p.strip() for p in raw.split(",") if p.strip()]
-    if not years:
-        raise ValueError("Fant ingen år i input")
-
-    for y in years:
-        if not y.isdigit():
-            raise ValueError(f"Ugyldig år: {y}")
-
-    return years
-
 
 def build_list_params(limit: int, offset: int, year: Optional[str]) -> Dict[str, str | int]:
     params: Dict[str, str | int] = {
