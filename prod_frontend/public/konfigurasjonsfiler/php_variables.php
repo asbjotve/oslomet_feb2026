@@ -36,7 +36,6 @@ switch ($lastet_side) {
         $logg_inn_p = $_ENV['BASE_URL'] . $_ENV['CREDENTIALS_M'] . "/" . $_ENV['LOGGINN_C'];
         $main_project_p = $_ENV['BASE_URL'];
         $set_session_p = $_ENV['BASE_URL'] . $_ENV['SCRIPT_M'] . "/" . $_ENV['SET_SESSION'] ;
-        $ajax_handler_p = $_ENV['BASE_URL'] . $_ENV['SCRIPT_M'] . "/" . $_ENV['AJAX_HANDLER'];
 
 
 
@@ -49,7 +48,6 @@ switch ($lastet_side) {
 
         echo 'const main_project_path = "' . $main_project_p . '";';
         echo 'const setsession_path = "' . $set_session_p . '";';
-        echo 'const ajax_handler_path = "' . $ajax_handler_p . '";';
         //echo 'const logg_ut_script_path = "' . $logg_ut_p . '";';
         echo 'const logg_ut_path = "' . $logg_ut_p . '";' ;
         echo 'const logg_inn_script_path = "' . $logg_inn_p . '";';
@@ -99,7 +97,6 @@ switch ($lastet_side) {
         $brukermeny_p = $_ENV['BASE_URL'] . $_ENV['NAVIGERING_M'] . "/" . $_ENV['BRUKERMENY'] ;
         $json_bokutdrag_p = $_ENV['BASE_URL'] . $_ENV['JSON_M'] . "/" . $_ENV['BOK_JSON'] ;
         $token = isset($_SESSION['user']['token']) ? $_SESSION['user']['token'] : '' ;
-        $ajax_handler_p = $_ENV['BASE_URL'] . $_ENV['SCRIPT_M'] . "/" . $_ENV['AJAX_HANDLER'] ;
 $refsjekk_p = "/" . "js_referansesjekk.php" ;
 
         echo '<script>';
@@ -112,7 +109,6 @@ $refsjekk_p = "/" . "js_referansesjekk.php" ;
         echo 'const json_bok_unik_isbn = "' . $unik_isbn_bok_p . '";';
         echo 'const main_project_path = "' . $main_project_p . '";';
         echo 'const setsession_path = "' . $set_session_p . '";';
-        echo 'const ajax_handler_path = "' . $ajax_handler_p . '";';
         echo 'const logg_ut_path = "' . $logg_ut_p . '";' ;
         echo 'var bruker_id_variable = "' . $bruker_id_var . '";' ;
         echo 'const brukermeny_path = "' . $brukermeny_p . '";';
