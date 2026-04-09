@@ -4,7 +4,7 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-$path_inc = "/var/www/oslomet.plexcityhub.net/";
+$path_inc = "/var/www/dev.oslomet.plexcity.net/public/";
 include_once $path_inc . 'konfigurasjonsfiler/dotenv_config.php';
 
 /*
