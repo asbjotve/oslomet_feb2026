@@ -1,0 +1,62 @@
+// Vent til dokumentet er klart
+$(document).ready(function () {
+    // Utfør en AJAX forespørsel
+    $.ajax({
+        url: brukermeny_path, // URL til PHP-scriptet som returnerer menyen
+        type: 'POST', // Metoden for forespørselen
+
+        // Hva som skal skje når forespørselen er vellykket
+        success: function (brukerrolle_meny) {
+            // Oppdaterer dropdown-menyen med det nye innholdet
+            $('#userMenu').html(brukerrolle_meny);
+
+            // Hent cookien
+            var dataCookie = getCookie('data');
+
+            // Sjekk om cookien eksisterer
+            if (dataCookie) {
+              try {
+                // Parse JSON-strengen til et objekt
+                var dataObject = JSON.parse(dataCookie);
+
+                // Hent verdien av "name"
+                var name = dataObject.name;
+
+                // Sjekk om "name" attributtet finnes
+                if (name) {
+                  // Sett brukernavnet i menyen
+                  document.getElementById("username_txt_menu").textContent = name;
+                } else {
+                  // Sett standardtekst hvis brukernavnet ikke finnes
+                  document.getElementById("username_txt_menu").textContent = 'Ikke pålogget';
+                }
+              } catch (error) {
+                // Logg feilen hvis det oppstår en feil under parsing av cookien
+                console.error('Error parsing data cookie:', error);
+                document.getElementById("username_txt_menu").textContent = 'Ikke pålogget';
+              }
+            } else {
+              // Sett standardtekst hvis cookien ikke finnes
+              document.getElementById("username_txt_menu").textContent = 'Ikke pålogget';
+            }
+
+            // Henter innloggingslenken
+            var loginLink = document.getElementById('LoginLink');
+
+            // Sjekker om innloggingslenken eksisterer
+            if (loginLink) {
+                // Legger til en hendelseslytter på innloggingslenken
+                loginLink.addEventListener('click', function (event) {
+                    // Forhindrer standard handling for klikkhendelsen
+                    event.preventDefault();
+
+                    // Oppretter en ny modal for innlogging
+                    var myModal = new bootstrap.Modal(document.getElementById('logg_inn_modal'), {});
+
+                    // Viser modalen
+                    myModal.show();
+                });
+            }
+        }
+    });
+});
