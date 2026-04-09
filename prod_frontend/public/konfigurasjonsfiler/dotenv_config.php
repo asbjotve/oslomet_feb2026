@@ -1,6 +1,6 @@
 <?php
 // Setter innstillinger for miljøvariabler
-require_once '/var/www/app.oslomet.plexcityhub.net/vendor/autoload.php';
-$dotenv = Dotenv\Dotenv::createImmutable('/var/www/app.oslomet.plexcityhub.net/env-files', '.oslomet_filoversikt_env');
+require_once '/var/www/dev.oslomet.plexcity.net/vendor/autoload.php';
+$dotenv = Dotenv\Dotenv::createImmutable('/var/www/dev.oslomet.plexcity.net', '.env.oslomet');
 $dotenv->load();
 ?>
