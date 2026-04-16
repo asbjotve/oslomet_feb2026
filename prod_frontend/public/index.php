@@ -5,7 +5,7 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 require_once __DIR__ . '/path.php';
-include_once $path_inc . 'konfigurasjonsfiler/dotenv_config.php';
+include_once $path_inc . '/konfigurasjonsfiler/dotenv_config.php';
 
 /*
 ###################################################################
