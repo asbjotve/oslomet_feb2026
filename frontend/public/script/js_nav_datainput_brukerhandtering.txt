@@ -1,0 +1,196 @@
+function getCookie(name) {
+    var cookies = document.cookie.split(';');
+    for(var i = 0; i < cookies.length; i++) {
+        var cookie = cookies[i];
+        while (cookie.charAt(0) == ' ') {
+            cookie = cookie.substring(1);
+        }
+        if (cookie.indexOf(name) == 0) {
+            return cookie.substring(name.length + 1, cookie.length);
+        }
+    }
+    return "";
+}
+
+function addEventListeners(currentUrl) {
+    if (currentUrl === bokutdrag_path) {
+        functions_bokutdragListener();
+    } else if (currentUrl === sammensatt_path) {
+        sammensateventhandles();
+    }
+}
+
+/* ########################################################
+
+Logg-ut funksjon
+
+########################################################*/
+function logg_ut() {
+    $.ajax({
+        url: logg_ut_path,
+        type: 'POST',
+        data: {
+            bruker_id: bruker_id_variable
+        },
+        success: function () {
+            alert('Du er nå logget ut.');
+            $.post(setsession_path, {
+                target: 'oversikt'
+            }, function () {});
+
+            window.location.href = main_project_path;
+        },
+        error: function () {
+            alert('Noe gikk galt, kunne ikke logge ut.');
+        }
+    });
+}
+
+/* ########################################################
+
+Logg-ut-lenke (som opptrer i brukermeny)
+
+########################################################*/
+// Logg ut-lenke
+$(document).ready(function () {
+    $(document).on('click', '.log-out-link', function (e) {
+        debugLog('Log ut lenke ble klikket!');
+        e.preventDefault();
+        debugLog("logg ut ble klikket");
+        logg_ut();
+    });
+});
+
+/* ########################################################
+
+Timer-funksjon for å vise modal 5 minutter før token utløper
+
+########################################################*/
+function setModalTimer() {
+    // Få utløpstiden fra cookien
+    var expiryTime = getCookie("expiry");
+    if (!expiryTime) {
+        console.error("Expiry cookie is not set.");
+        return;
+    }
+    debugLog("Expiry time from cookie:", expiryTime);
+    var expiry = new Date(expiryTime * 1000);
+
+    // Beregn tiden til modalen skal vises (5 minutter før utløp)
+    var modalTime = expiry.getTime() - MODAL_WARNING_TIME;
+
+    debugLog("Expiry time:", expiry);
+    debugLog("Modal time:", new Date(modalTime));
+
+    // Sett en timeout for å vise modalen
+    setTimeout(function() {
+        debugLog("Showing modal");
+        showModal();
+    }, modalTime - new Date().getTime());
+}
+
+// Kall funksjonen når siden lastes inn
+setModalTimer();
+
+
+var countdownInterval;
+/* ########################################################
+
+Funksjon for visning av modal og nedtelling til utlogging
+
+########################################################*/
+function showModal() {
+    var hold_innlogget_Modal = new bootstrap.Modal(document.getElementById('hold_innlogget'), {
+        backdrop: 'static',
+        keyboard: false
+    });
+    hold_innlogget_Modal.show();
+
+    // Hent tokenExpiry fra cookien
+    var expiryTime = getCookie("expiry");
+    debugLog("Expiry time from cookie:", expiryTime);
+    var tokenExpiry = new Date(expiryTime * 1000);
+
+    // Opprett en interval for å oppdatere nedtellingen hvert sekund
+    countdownInterval = setInterval(function() {
+        // Beregn tiden til tokenExpiry
+        var timeLeft = tokenExpiry.getTime() - Date.now();
+
+        if (timeLeft <= 0) {
+            // Hvis tokenExpiry har passert, stopp nedtellingen og logg ut
+            clearInterval(countdownInterval);
+            var hold_innlogget_Modal = bootstrap.Modal.getInstance(document.getElementById('hold_innlogget'));
+            if (hold_innlogget_Modal) {
+                hold_innlogget_Modal.hide();
+            }
+            logg_ut();
+            return;
+        }
+
+        // Konverter tiden til timer, minutter og sekunder
+        var hours = Math.floor(timeLeft / (60 * 60 * 1000));
+        var minutes = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
+        var seconds = Math.floor((timeLeft % (60 * 1000)) / 1000);
+
+        // Legg til ledende nuller
+        hours = hours.toString().padStart(2, '0');
+        minutes = minutes.toString().padStart(2, '0');
+        seconds = seconds.toString().padStart(2, '0');
+
+        // Oppdater nedtellingen på modalen
+        document.getElementById('nedtelling').textContent = 'Tid før du logges ut (ved utlogging går alt ikke-lagret arbeid tapt): ' + hours + ':' + minutes + ':' + seconds + ' minutter';
+    }, 1000);
+}
+
+/* ########################################################
+
+Event-listener, for å holde bruker innlogget
+
+########################################################*/
+$(document).on('click', '#btn_hold_innlogget', function() {
+    // Hent URL-en til den nåværende siden
+    var currentUrl = $("#content").data('currentUrl');
+    console.log("Current URL:", currentUrl);
+
+    // Lagrer skjemadata i cookie
+    var formData = $('#bokutdragForm').serialize();
+    document.cookie = "formData=" + formData + "; path=/";
+    console.log("Form data saved in cookie:", formData);
+
+    $.ajax({
+        url: hold_innlogget_cookie,
+        type: 'post',
+        dataType: 'json', // Forventer JSON-respons
+        success: function(response) {
+            debugLog("AJAX success function called");
+            debugLog("Response:", response);
+
+            if (response.status === 'success') {
+                // Oppdater cookien og lagre currentUrl i en cookie
+                document.cookie = "currentUrl=" + currentUrl + "; path=/";
+                debugLog("Current URL saved in cookie:", currentUrl);
+
+                // Skjul modalen ved å bruke Bootstrap 5's modal instans
+                var hold_innlogget_Modal = bootstrap.Modal.getInstance(document.getElementById('hold_innlogget'));
+                if (hold_innlogget_Modal) {
+                    debugLog('Skjuler modal');
+                    hold_innlogget_Modal.hide();
+                } else {
+                    debugLog('Modal instance not found');
+                }
+
+                // Legg til en liten forsinkelse før sideoppdatering
+                setTimeout(function() {
+                    // Last siden på nytt
+                    debugLog("Reloading page");
+                    location.reload();
+                }, 500); // 500ms forsinkelse
+            } else {
+                console.error("Error:", response.message);
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error("AJAX error:", status, error);
+        }
+    });
+});

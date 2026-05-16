@@ -1,0 +1,112 @@
+// === Hjelpefunksjoner ===
+function getRoles() {
+    return fetch('/proxy.php?endpoint=brukerroller', { method: 'POST' })
+        .then(r => { if (!r.ok) throw new Error("Feil ved henting av roller"); return r.json(); })
+        .then(data => data.roles)
+        .catch(() => ['guest']);
+}
+
+// Roller og paths (SAMME nøkkel overalt!)
+const pageRoles = {
+    hjem: ['guest', 'medarbeider', 'superadmin'],
+    referansesjekk: ['guest', 'medarbeider', 'superadmin'],
+};
+
+const links = {
+    hjem: typeof hjem_path !== "undefined" ? hjem_path : refsjekk_path,
+    referansesjekk: typeof refsjekk_path !== "undefined" ? refsjekk_path : "/refsjekk",
+};
+
+// Tilgangskontroll
+function hasRoleAccess(linkType, userRoles) {
+    const needed = (pageRoles[linkType] || ['guest']).map(r => r.toLowerCase());
+    const user = userRoles.map(r => r.toLowerCase());
+    return user.some(role => needed.includes(role));
+}
+function getFallbackPage(userRoles) {
+    for (const [key, path] of Object.entries(links))
+        if (hasRoleAccess(key, userRoles)) return { key, path };
+    return { key: 'hjem', path: links.hjem };
+}
+function hideInaccessibleLinks(userRoles) {
+    $('.nav-link.ajax-link').each(function() {
+        var linkType = $(this).text().toLowerCase().trim();
+        if (!hasRoleAccess(linkType, userRoles)) $(this).hide();
+        else $(this).show();
+    });
+}
+function setActiveNavByUrl(url) {
+    $('.nav-link.ajax-link').removeClass('active');
+    $('.nav-link.ajax-link').each(function() {
+        var txt = $(this).text().toLowerCase().trim();
+        $.each(links, function(key, val) {
+            if (val === url && key === txt) $(this).addClass('active');
+        }.bind(this));
+    });
+}
+function showAccessModal(forPage) {
+    let pageName = forPage ? (forPage.charAt(0).toUpperCase() + forPage.slice(1)) : "";
+    document.getElementById('accessModalBody').innerText =
+        "Du har ikke tilgang til siden «" + pageName + "». Du har blitt videresendt til nærmeste side du har tilgang til.";
+    var modal = new bootstrap.Modal(document.getElementById('accessModal'));
+    modal.show();
+}
+
+// Event listeners for spesifikke sider
+function initPageListeners(url) {
+    if (typeof refsjekk_path !== "undefined" && url === refsjekk_path) {
+
+    }
+}
+
+// === Init-script ===
+$(function() {
+    getRoles().then(function(userRoles) {
+        hideInaccessibleLinks(userRoles);
+
+        // Alltid start på fallback-side for denne brukeren (første man har tilgang til)
+        var fallback = getFallbackPage(userRoles);
+        var currentUrl = fallback.path;
+
+        // Last inn fallback-side
+        $.get(currentUrl, function (data) {
+            $("#content").html(data);
+            setActiveNavByUrl(currentUrl);
+            initPageListeners(currentUrl);
+        });
+
+        // Navigasjon med adgangskontroll + modal
+        $(document).on('click', 'a.ajax-link', function (event) {
+            var linkType = $(this).text().toLowerCase().trim();
+            var url = links[linkType];
+            var target = $(this).data('target');
+            if (url && url.endsWith('#')) return;
+            else if (target) {
+                event.preventDefault();
+                $.post(setsession_path, { target: target }, function () {
+                    window.location.href = main_project_path;
+                });
+            } else if (url) {
+                if (!hasRoleAccess(linkType, userRoles)) {
+                    event.preventDefault();
+                    var fallback = getFallbackPage(userRoles);
+                    $.get(fallback.path, function (data) {
+                        $("#content").html(data);
+                        setActiveNavByUrl(fallback.path);
+                        initPageListeners(fallback.path);
+                        showAccessModal(linkType);
+                    });
+                    return;
+                }
+                event.preventDefault();
+                $.get(url, function (data) {
+                    $("#content").html(data);
+                    setActiveNavByUrl(url);
+                    initPageListeners(url);
+                }).fail(function () {
+                    window.location.href = url;
+                });
+            }
+        });
+    });
+});
