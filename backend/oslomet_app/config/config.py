@@ -9,9 +9,8 @@ ENV = os.getenv("OSLOMET_ENV", "dev")
 BASE_DIR = Path(__file__).resolve().parent
 
 ENV_FILES = {
-    "dev": BASE_DIR / ".oslomet",
+    "dev": BASE_DIR / ".env.dev",
     "prod": BASE_DIR / ".env.prod",
-    "test": BASE_DIR / ".env.test",
 }
 
 class Settings(BaseSettings):
@@ -29,6 +28,8 @@ class Settings(BaseSettings):
     FASTAPI_TOKEN: str = "key"
     MAL_ARBEIDSOVERSIKT_SHEETID: str = "sheet_id"
     ADMIN_PW: str = "din hemmelige nøkkel"
+    WEBSITE_DOCUMENT_ROOT: str = "/"
+    JSON_OUTPUT_DIR: str = "/"
     # ... legg til flere settings etter behov
 
     class Config:
