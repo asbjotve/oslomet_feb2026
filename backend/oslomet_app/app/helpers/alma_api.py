@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 from typing import Optional
+from app.database.db_guard import acquire_cursor
+
 import aiomysql
 
 async def get_url_list(pool, year):
-    async with pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cursor:
-            if year == "all":
-                await cursor.execute("SELECT id, owner_url FROM api_alma_pensumlister")
-            else:
-                await cursor.execute(
-                    "SELECT id, owner_url FROM api_alma_pensumlister WHERE course_year = %s", (year,)
-                )
-            rows = await cursor.fetchall()
+    async with acquire_cursor(pool) as (_conn, c):
+        if year == "all":
+            await c.execute("SELECT id, owner_url FROM api_alma_pensumlister")
+        else:
+            await c.execute(
+                "SELECT id, owner_url FROM api_alma_pensumlister WHERE course_year = %s",
+                (year,),
+            )
+        rows = await c.fetchall()
+
     # Retur dict: {id: owner_url, ...}
-    return {row['id']: row['owner_url'] for row in rows}
+    return {row["id"]: row["owner_url"] for row in rows}
 
 def normalize_years_input(year_input: str) -> list[Optional[str]]:
     """
