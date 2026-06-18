@@ -10,7 +10,7 @@ DB_CONFIG = {
     "user": settings.DB_USER,
     "password": settings.DB_PASSWORD,
     "db": settings.DB_NAME,
-    "autocommit": False,
+    "autocommit": True,
 }
 
 _async_pool: aiomysql.Pool | None = None
