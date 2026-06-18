@@ -1,9 +1,6 @@
 import re
 import time
-import json
 import datetime
-import asyncio
-from pathlib import Path
 
 import aiomysql
 from fastapi import HTTPException
@@ -12,33 +9,6 @@ from fastapi import HTTPException
 FILNAVN_REGEX = re.compile(
     r"^(19|20)\d\d_(0[1-9]|1[0-2])_(0[1-9]|[12][0-9]|3[01])_([01][0-9]|2[0-3])[0-5][0-9]$"
 )
-
-# Hindrer at to requests skriver samme JSON-filer samtidig
-_json_write_lock = asyncio.Lock()
-
-
-def convert_datetime(obj):
-    if isinstance(obj, (datetime.datetime, datetime.date)):
-        return obj.isoformat()
-    raise TypeError(f"Type {type(obj)} not serializable")
-
-
-async def query_and_save_to_json(conn: aiomysql.Connection, sql: str, params: tuple, output_file_path: str):
-    async with conn.cursor(aiomysql.DictCursor) as cursor:
-        await cursor.execute(sql, params)
-        rows = await cursor.fetchall()
-
-    data = [{"fieldData": {k: (v if v is not None else "") for k, v in row.items()}} for row in rows]
-    json_data = {"response": {"data": data}}
-
-    output_file = Path(output_file_path)
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-
-    def _write():
-        with output_file.open("w", encoding="utf-8") as f:
-            json.dump(json_data, f, ensure_ascii=False, indent=2, default=convert_datetime)
-
-    await asyncio.to_thread(_write)
 
 
 async def hent_brukerdata_med_token(token: str, cursor: aiomysql.DictCursor):
@@ -90,15 +60,33 @@ async def leggtil_fil(fil, conn: aiomysql.Connection, cursor: aiomysql.DictCurso
         )
     """
     params = (
-        fil.filnavn, getattr(fil, "boktittel", None), getattr(fil, "artikkel_tittel", None), getattr(fil, "tittel", None),
-        getattr(fil, "sideangivelse", None), getattr(fil, "kapittelnummer", None), getattr(fil, "kapittelforfatter", None),
-        getattr(fil, "kapitteltittel", None), getattr(fil, "utgitt", None), getattr(fil, "forlag", None),
-        getattr(fil, "forfatter", None), getattr(fil, "merknad", None), getattr(fil, "isbn", None),
-        getattr(fil, "issn", None), getattr(fil, "kommentar", None), getattr(fil, "mangler_i_fil", None),
-        getattr(fil, "skannjobb_id", None), getattr(fil, "type_dokument", None), getattr(fil, "tidsskrift", None),
-        getattr(fil, "argang_volume", None), getattr(fil, "hefte_issue", None), getattr(fil, "fil_bestar_av", None),
-        getattr(fil, "alternativ_sideangivelse", None), getattr(fil, "mange_sideangivelser", None),
-        getattr(fil, "doktype_id", None), fil.lagt_til_av_id, fil.lagt_til_av_navn
+        fil.filnavn,
+        getattr(fil, "boktittel", None),
+        getattr(fil, "artikkel_tittel", None),
+        getattr(fil, "tittel", None),
+        getattr(fil, "sideangivelse", None),
+        getattr(fil, "kapittelnummer", None),
+        getattr(fil, "kapittelforfatter", None),
+        getattr(fil, "kapitteltittel", None),
+        getattr(fil, "utgitt", None),
+        getattr(fil, "forlag", None),
+        getattr(fil, "forfatter", None),
+        getattr(fil, "merknad", None),
+        getattr(fil, "isbn", None),
+        getattr(fil, "issn", None),
+        getattr(fil, "kommentar", None),
+        getattr(fil, "mangler_i_fil", None),
+        getattr(fil, "skannjobb_id", None),
+        getattr(fil, "type_dokument", None),
+        getattr(fil, "tidsskrift", None),
+        getattr(fil, "argang_volume", None),
+        getattr(fil, "hefte_issue", None),
+        getattr(fil, "fil_bestar_av", None),
+        getattr(fil, "alternativ_sideangivelse", None),
+        getattr(fil, "mange_sideangivelser", None),
+        getattr(fil, "doktype_id", None),
+        fil.lagt_til_av_id,
+        fil.lagt_til_av_navn,
     )
 
     try:
@@ -107,13 +95,11 @@ async def leggtil_fil(fil, conn: aiomysql.Connection, cursor: aiomysql.DictCurso
         inserted_id = cursor.lastrowid
 
     except aiomysql.IntegrityError as err:
-        # Viktig ved autocommit=False
         try:
             await conn.rollback()
         except Exception:
             pass
 
-        # typisk (1062, "Duplicate entry ...")
         if getattr(err, "args", None) and len(err.args) >= 1 and err.args[0] == 1062:
             filnavn = getattr(fil, "filnavn", "<ukjent>")
             raise HTTPException(
@@ -124,20 +110,10 @@ async def leggtil_fil(fil, conn: aiomysql.Connection, cursor: aiomysql.DictCurso
         raise HTTPException(status_code=500, detail=f"Databasefeil: {err}")
 
     except Exception:
-        # Viktig ved autocommit=False
         try:
             await conn.rollback()
         except Exception:
             pass
         raise
-
-
-    # JSON må oppdateres før response, og låses for å unngå samtidige writes
-    async with _json_write_lock:
-        await query_and_save_to_json(conn, "SELECT * FROM filoversikt_bokutdrag", (), "/var/www/oslomet.plexcityhub.net/json/bokutdrag.txt")
-        await query_and_save_to_json(conn, "SELECT * FROM filoversikt_artikler", (), "/var/www/oslomet.plexcityhub.net/json/artikler.txt")
-        await query_and_save_to_json(conn, "SELECT * FROM filoversikt_annet", (), "/var/www/oslomet.plexcityhub.net/json/annet.txt")
-        await query_and_save_to_json(conn, "SELECT * FROM filoversikt_sammensatte_utdrag", (), "/var/www/oslomet.plexcityhub.net/json/sammensatt.txt")
-        await query_and_save_to_json(conn, "SELECT * FROM filoversikt_unike_titler", (), "/var/www/oslomet.plexcityhub.net/json/json_bok_unik.txt")
 
     return {"id": inserted_id, "filnavn": fil.filnavn}
