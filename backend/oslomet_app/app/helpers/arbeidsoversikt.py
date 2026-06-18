@@ -311,5 +311,5 @@ def get_google_sheets_service(service_account_file, scopes=None):
     from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build
     creds = Credentials.from_service_account_file(service_account_file, scopes=scopes)
-    service = build('sheets', 'v4', credentials=creds)
+    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
     return service
