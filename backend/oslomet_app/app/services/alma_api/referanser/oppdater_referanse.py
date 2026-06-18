@@ -11,8 +11,6 @@ import aiohttp
 import aiomysql
 
 from app.services.alma_api.helpers import (
-    analyze_tags,
-    analyze_tags_bolk,
     build_json_from_ref_vars,
     generer_import_kommentar,
     get_nested,
@@ -27,6 +25,8 @@ from app.services.alma_api.helpers import (
     sammensatt_sideangivelse,
     strip_tags,
     validate_filelink,
+    tag_value_basic,
+    clearance_status,
 )
 from config.config import settings
 
@@ -233,8 +233,8 @@ def _extract_referanse_row(
     ref_article_title = get_nested(ref, ["metadata", "article_title"])
 
     citation_tags_json = get_nested(ref, ["citation_tags"])
-    ref_citation_tags = analyze_tags(citation_tags_json, ref_file_link)
-    ref_citation_tags_bolk = analyze_tags_bolk(citation_tags_json)
+    ref_citation_tags = tag_value_basic(citation_tags_json, ref_file_link)
+    ref_citation_tags_bolk = clearance_status(citation_tags_json)
 
     ref_issue = get_nested(ref, ["metadata", "issue"])
     ref_editor = get_nested(ref, ["metadata", "editor"])
