@@ -1,21 +1,47 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.routes.filoversikt.filoversikt_route import router as filoversikt_router
-from app.routes.alma_api.alma_api_route import router as alma_api_router
-
-from app.database.db import get_async_db_pool, close_async_db_pool, get_db_conn_and_cursor
-import aiomysql
+import logging
+import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
-from pydantic import BaseModel
-from config.config import settings
-
-# Argon2id hashing (via argon2-cffi)
+import aiomysql
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from pydantic import BaseModel
+
+from app.database.db import get_async_db_pool, close_async_db_pool, get_db_conn_and_cursor
+from app.helpers.job_storage import cleanup_old_jobs
+from app.routes.alma_api.alma_api_route import router as alma_api_router
+from app.routes.arbeidsoversikt.arbeidsoversikt_sort_sheet import router as arbeidsoversikt_sort_sheet
+from app.routes.arbeidsoversikt.sync_endringer_route import router as arbeidsoversikt_endringer_router
+from app.routes.arbeidsoversikt.sync_reaktiverte_route import router as arbeidsoversikt_reaktiverte_router
+from app.routes.arbeidsoversikt.sync_route import router as arbeidsoversikt_router
+from app.routes.filoversikt.filoversikt_route import router as filoversikt_router
+
+from app.routes.filoversikt.hent_bokutdrag import router as bokutdrag_router
+from app.routes.filoversikt.hent_artikler import router as artikler_router
+from app.routes.filoversikt.hent_annet_dok import router as annet_dok_router
+from app.routes.filoversikt.hent_sammensatt import router as sammensatt_router
+
+from app.routes.filoversikt.isbn_oppslag import router as isbn_oppslag_router
+from app.routes.kopinor.kopinor_tall_route import router as kopinor_tall_router
+from app.routes.kopinor.kopinor_referanser_route import router as kopinor_referanser_router
+from app.routes.referansesjekk.referansesjekk_route import router as referansesjekk_router
+
+from config.config import settings
+
+# ------------------------------------------------------------------------------
+# Logging av applikasjonen
+# ------------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -24,16 +50,13 @@ app = FastAPI()
 # ------------------------------------------------------------------------------
 import warnings
 
-# Demp MySQL "Duplicate entry ..." warnings fra aiomysql
 warnings.filterwarnings("ignore", message=r"Duplicate entry .*", category=Warning)
 warnings.filterwarnings("ignore", message=r"Duplicate entry .*", category=UserWarning)
 
 # ------------------------------------------------------------------------------
 # Swagger / OpenAPI security (Authorize-knapp)
 # ------------------------------------------------------------------------------
-# tokenUrl må peke på endepunktet som utsteder token.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
 
 # ------------------------------------------------------------------------------
 # CORS
@@ -43,12 +66,13 @@ origins = [
     "http://localhost:8080",
     "http://filoversikt.tveitas.net",
     "https://app.plexcityhub.net",
+    "https://app.oslomet.plexcityhub.net",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,  # sett til False hvis du ikke bruker cookies/credentials i browser
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -57,7 +81,6 @@ app.add_middleware(
 # Settings
 # ------------------------------------------------------------------------------
 ADMIN_PASSWORD = settings.ADMIN_PW
-
 
 # ------------------------------------------------------------------------------
 # Models
@@ -81,8 +104,6 @@ class TokenBody(BaseModel):
 # ------------------------------------------------------------------------------
 # Password helpers (Argon2id)
 # ------------------------------------------------------------------------------
-# Start-verdier som ofte funker bra for web-innlogging.
-# Juster etter maskinvare/krav.
 ph = PasswordHasher(
     time_cost=2,
     memory_cost=102400,  # 100 MiB
@@ -93,7 +114,6 @@ ph = PasswordHasher(
 
 
 def hash_password(password: str) -> str:
-    # DoS-beskyttelse: begrens ekstremt lange passord.
     if len(password) > 1024:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -119,6 +139,20 @@ def needs_rehash(password_hash_from_db: str) -> bool:
 # ------------------------------------------------------------------------------
 # Token / auth helpers
 # ------------------------------------------------------------------------------
+def _normalize_token(token: str) -> str:
+    """
+    Normaliser token fra klient/proxy.
+    Fjerner whitespace og evt. anførselstegn rundt (hender hvis noe dobbel-json-encodes).
+    """
+    if token is None:
+        return ""
+    t = token.strip()
+    # Hvis token kommer som '"abc..."' (inkl. anførselstegn), fjern dem
+    if len(t) >= 2 and ((t[0] == '"' and t[-1] == '"') or (t[0] == "'" and t[-1] == "'")):
+        t = t[1:-1].strip()
+    return t
+
+
 async def get_user_by_valid_token(cursor: aiomysql.DictCursor, token: str) -> dict:
     """
     Slår opp token i filoversikt_brukere og sjekker token_expiry.
@@ -126,8 +160,16 @@ async def get_user_by_valid_token(cursor: aiomysql.DictCursor, token: str) -> di
     """
     now_epoch = int(time.time())
 
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Ugyldig eller utløpt token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     await cursor.execute(
-        "SELECT bruker_id, passord, token_expiry FROM filoversikt_brukere WHERE token = %s",
+        "SELECT bruker_id, token_expiry FROM filoversikt_brukere WHERE token = %s LIMIT 1",
         (token,),
     )
     user = await cursor.fetchone()
@@ -139,7 +181,8 @@ async def get_user_by_valid_token(cursor: aiomysql.DictCursor, token: str) -> di
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    if user.get("token_expiry") is None or user["token_expiry"] < now_epoch:
+    exp = user.get("token_expiry")
+    if exp is None or int(exp) < now_epoch:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Ugyldig eller utløpt token",
@@ -148,12 +191,7 @@ async def get_user_by_valid_token(cursor: aiomysql.DictCursor, token: str) -> di
 
     return user
 
-
 async def require_admin_token(token: str = Depends(oauth2_scheme)) -> str:
-    """
-    Brukes for Swagger-authorize og beskyttede admin-endepunkter.
-    Her sjekker vi token mot statisk token i settings.
-    """
     if token != settings.FASTAPI_TOKEN:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -170,6 +208,10 @@ async def require_admin_token(token: str = Depends(oauth2_scheme)) -> str:
 async def startup_event():
     await get_async_db_pool()
 
+    project_root = Path(__file__).resolve().parents[1]
+    cleanup_stats = cleanup_old_jobs(project_root=project_root, keep_days=7)
+    logger.info("job cleanup: %s", cleanup_stats)
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -181,6 +223,18 @@ async def shutdown_event():
 # ------------------------------------------------------------------------------
 app.include_router(filoversikt_router)
 app.include_router(alma_api_router)
+app.include_router(arbeidsoversikt_router)
+app.include_router(arbeidsoversikt_endringer_router)
+app.include_router(arbeidsoversikt_reaktiverte_router)
+app.include_router(arbeidsoversikt_sort_sheet)
+app.include_router(kopinor_tall_router)
+app.include_router(kopinor_referanser_router)
+app.include_router(referansesjekk_router)
+app.include_router(bokutdrag_router)
+app.include_router(artikler_router)
+app.include_router(annet_dok_router)
+app.include_router(sammensatt_router)
+app.include_router(isbn_oppslag_router)
 
 # ------------------------------------------------------------------------------
 # Endpoints
@@ -192,12 +246,6 @@ def root():
 
 @app.post("/token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """
-    Dette endepunktet gjør at Swagger UI kan bruke OAuth2 password flow:
-    - trykk "Authorize" i Swagger
-    - skriv inn username/password
-    - Swagger kaller POST /token og lagrer Bearer-token
-    """
     if form_data.username == "admin" and form_data.password == ADMIN_PASSWORD:
         token = settings.FASTAPI_TOKEN
         return {"access_token": token, "token_type": "bearer"}
@@ -205,12 +253,14 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Feil brukernavn/passord")
 
 
-# ------------------------- Eksisterende (token i body) -------------------------
 @app.post("/brukerroller", tags=["OsloMet-digitalisering nettsted"], include_in_schema=False)
 async def brukerroller(body: TokenBody, db=Depends(get_db_conn_and_cursor)):
-    """
-    Bakoverkompatibel: tar token i body.
-    """
+    logger.info(
+        "brukerroller received token len=%s prefix=%s",
+        len(body.token) if body.token else 0,
+        body.token[:12] if body.token else "",
+    )
+
     _conn, cursor = db
 
     user = await get_user_by_valid_token(cursor, body.token)
@@ -234,16 +284,26 @@ async def brukerroller(body: TokenBody, db=Depends(get_db_conn_and_cursor)):
 
 @app.post("/api/change_password", tags=["OsloMet-digitalisering nettsted"])
 async def change_password(data: ChangePasswordRequest, db=Depends(get_db_conn_and_cursor)):
-    """
-    Bakoverkompatibel: tar token i body.
-    OBS: Denne forventer at user["passord"] er en Argon2-hash.
-    Hvis du har gamle bcrypt-hasher i databasen må du enten migrere eller støtte begge i en overgang.
-    """
     conn, cursor = db
 
-    user = await get_user_by_valid_token(cursor, data.token)
+    token = _normalize_token(data.token)
+    user = await get_user_by_valid_token(cursor, token)
+    bruker_id = user["bruker_id"]
 
-    if not verify_password(data.oldPassword, user["passord"]):
+    # Hent passord-hash eksplisitt for denne brukeren
+    await cursor.execute(
+        "SELECT passord FROM filoversikt_brukere WHERE bruker_id = %s LIMIT 1",
+        (bruker_id,),
+    )
+    row = await cursor.fetchone()
+    if not row or not row.get("passord"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Ugyldig bruker eller mangler passord.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not verify_password(data.oldPassword, row["passord"]):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Feil gammelt passord.",
@@ -253,19 +313,14 @@ async def change_password(data: ChangePasswordRequest, db=Depends(get_db_conn_an
 
     await cursor.execute(
         "UPDATE filoversikt_brukere SET passord = %s WHERE bruker_id = %s",
-        (new_password_hash, user["bruker_id"]),
+        (new_password_hash, bruker_id),
     )
     await conn.commit()
 
     return {"success": True, "message": "Passordet ble endret"}
 
-
 @app.post("/api/create_user", tags=["OsloMet-digitalisering nettsted"])
 async def create_user(data: BrukerCreateRequest, db=Depends(get_db_conn_and_cursor)):
-    """
-    Ubeskyttet i originalen (samme som før).
-    Hvis du ønsker å beskytte brukeropprettelse, bruk /api/create_user_auth (under).
-    """
     conn, cursor = db
 
     await cursor.execute(
@@ -315,19 +370,12 @@ async def create_user(data: BrukerCreateRequest, db=Depends(get_db_conn_and_curs
     return {"success": True, "message": "Bruker opprettet og tildelt rolle!"}
 
 
-# ------------------------- Nye (Swagger-friendly) endpoints ---------------------
 @app.post("/brukerroller_auth", tags=["OsloMet-digitalisering nettsted"])
 async def brukerroller_auth(
     db=Depends(get_db_conn_and_cursor),
     _admin_token: str = Depends(require_admin_token),
     token: str = Depends(oauth2_scheme),
 ):
-    """
-    Swagger-friendly: token i Authorization-header.
-    NB: Her bruker vi token fra header til å slå opp roller i DB (samme som body-varianten).
-    _admin_token sørger for at Swagger-greia er synlig/krevd (Bearer auth).
-    token-parameteret her er egentlig samme token som _admin_token, men vi lar det være eksplisitt.
-    """
     _conn, cursor = db
 
     user = await get_user_by_valid_token(cursor, token)
@@ -355,9 +403,6 @@ async def create_user_auth(
     db=Depends(get_db_conn_and_cursor),
     _admin_token: str = Depends(require_admin_token),
 ):
-    """
-    Swagger-friendly og beskyttet: krever Bearer-token (fra Swagger Authorize).
-    """
     conn, cursor = db
 
     await cursor.execute(
