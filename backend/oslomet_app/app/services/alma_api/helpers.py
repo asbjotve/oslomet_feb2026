@@ -6,7 +6,99 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+
+# ============================================================================
+# NY KODE (2026-05-05): Bitmask for DIGITIZED/DIGITIZATION/Klarert + clearance
+# ============================================================================
+
+def _normalize_tags(citation_tags):
+    if isinstance(citation_tags, dict) and "citation_tag" in citation_tags:
+        return citation_tags["citation_tag"] or []
+    if isinstance(citation_tags, list):
+        return citation_tags
+    return []
+
+
+def tag_value_basic(citation_tags, file_link) -> int:
+    """
+    Returnerer tallverdi basert på DIGITIZED/DIGITIZATION/Klarert.
+
+    Bitverdier:
+      DIGITIZED    -> 1
+      DIGITIZATION -> 2
+      Klarert      -> 4
+
+    Spesialregel (som i gammel kode):
+      - Hvis ingen av disse tre taggene finnes (mask == 0):
+          - ingen fil  -> 0
+          - har fil    -> 12
+      - Ellers returneres mask (1..7).
+    """
+    tags = _normalize_tags(citation_tags)
+
+    value_to_bit = {
+        "DIGITIZED": 1,
+        "DIGITIZATION": 2,
+        "Klarert": 4,
+    }
+
+    mask = 0
+    for tag in tags:
+        v = (tag.get("value") or {}).get("value")
+        mask |= value_to_bit.get(v, 0)
+
+    if mask == 0:
+        return 12 if file_link else 0
+
+    return mask
+
+def clearance_status(citation_tags) -> int:
+    """
+    Returnerer:
+      1 hvis CLEARANCE_APPROVAL finnes
+      2 hvis CLEARANCE_DECLINED finnes
+      0 ellers
+    """
+    tags = _normalize_tags(citation_tags)
+
+    for tag in tags:
+        v = (tag.get("value") or {}).get("value")
+        if v == "CLEARANCE_APPROVAL":
+            return 1
+        if v == "CLEARANCE_ACTION_REQUIRED":
+            return 2
+    return 0
+
+# ============================================================================
+# GAMMEL KODE (legacy): analyze_tags_OLD
+# ============================================================================
+
 def analyze_tags(citation_tags, file_link):
+    har_fil = 47 if file_link else 0
+
+    if isinstance(citation_tags, dict) and "citation_tag" in citation_tags:
+        tags = citation_tags["citation_tag"] or []
+    elif isinstance(citation_tags, list):
+        tags = citation_tags
+    else:
+        tags = []
+
+    value_to_score = {
+        "DIGITIZED": 2,
+        "DIGITIZATION": 5,
+        "Klarert": 11,
+        "CLEARANCE_APPROVAL": 23,
+    }
+
+    present_values = {
+        (tag.get("value") or {}).get("value")
+        for tag in tags
+    }
+
+    tagg_verdi = sum(value_to_score.get(v, 0) for v in present_values)
+    return har_fil + tagg_verdi
+
+def analyze_tags_OLD(citation_tags, file_link):
     verdi_1 = 0
     verdi_2 = 0
     verdi_3 = 0
@@ -42,7 +134,7 @@ def analyze_tags(citation_tags, file_link):
 
     return verdi
 
-def analyze_tags(citation_tags, file_link):
+def analyze_tags_dublett(citation_tags, file_link):
     verdi_1 = 0
     verdi_2 = 0
     verdi_3 = 0
@@ -76,6 +168,7 @@ def analyze_tags(citation_tags, file_link):
 
     return verdi_1 + verdi_2 + verdi_3
 def analyze_tags_bolk(citation_tags):
+    """Analyserer om referansen er bolk-behandlet eller ikke. Kan med fordel erstattes av 'clerance_status()' """
     verdi = 0
 
     tags = []
@@ -282,14 +375,15 @@ def generer_import_kommentar(indikator_vaar_fil, file_link, citation_tags):
         elif 1 in tags:
             kommentar = '- Tagget "Digitalisert", men er uten fil. Filen er enten fjernet - eller så er referansen oppdatert/lagt til på ny, uten fil.'
     else:
-        if any(t in tags for t in [1, 3, 4]) and indikator_vaar_fil == 0:
+        if any(t in tags for t in [1, 2, 3]) and indikator_vaar_fil == 0:
             kommentar = '- import-kommentar: tagget, men filen er ikke produsert av UB'
-        elif not any(t in tags for t in [1, 3, 4, 5, 6, 7, 9]) and indikator_vaar_fil == 0:
+        elif not any(t in tags for t in [1, 2, 3, 4, 5, 6, 7]) and indikator_vaar_fil == 0:
             kommentar = '- import-kommentar: ikke tagget, men har fil knyttet til referansen (som ikke er produsert av UB)'
-        elif not any(t in tags for t in [1, 3, 4, 5, 6, 8, 9]) and indikator_vaar_fil == 1:
+        elif not any(t in tags for t in [1, 2, 3, 4, 5, 6, 7]) and indikator_vaar_fil == 1:
             kommentar = '- import-kommentar: Mangler tagg, men med fil produsert av UB'
 
-# Mangler egentlig kommentar, dersom en referanse er tagget, men der filen er prousert av UB
+# Mangler egentlig kommentar, dersom en referanse er tagget, men der filen er prousert av UB - er denne kommentaren
+# nødvendig, pr. 06.05.2026?
 
 
     return kommentar
@@ -368,43 +462,49 @@ def strip_tags(text):
 #     ref_start_page10, ref_end_page10
 # )
 
-def map_bolk_kolonneverdi(copyrights_status, license_type, citation_tags, file_link=None, isbnkommentar=0):
-    """
-    Returnerer:
-        1 hvis alle disse er oppfylt:
-            - copyrights_status == "APPROVED"
-            - license_type == "BOLK"
-            - analyze_tags(citation_tags, file_link) == 1
-        2 hvis begge disse er oppfylt:
-            - copyrights_status == "DECLINED"
-            - analyze_tags(citation_tags, file_link) == 1
-        3 hvis:
-            - analyze_tags(citation_tags, file_link) == 1
-            - copyrights_status er IKKE "DECLINED" eller "APPROVED"
-        4 for alle andre tilfeller
-    """
-    tags_result = analyze_tags(citation_tags, file_link)
+def map_bolk_kolonneverdi(copyrights_status, citation_tags, bolk_tag, file_link=None, isbnkommentar=0):
+    tags_result = tag_value_basic(citation_tags, file_link)
 
-#    if copyrights_status == "APPROVED" and license_type == "BOLK" and tags_result == 1:
-#        return 1
-#    elif copyrights_status == "DECLINED" and tags_result == 1:
-#        return 2
-#    elif tags_result == 1 and copyrights_status not in ("DECLINED", "APPROVED"):
-#        return 3
-#    else:
-#        return 4
+    tags_result = tag_value_basic(citation_tags, file_link)
+    tags_ok = (tags_result == 1)
+    has_file = bool(file_link)  # True hvis ikke None og ikke ""
 
-# Koden nedenfor erstatter koden overfor, ny kode lagt til 16.12.2026
-    if copyrights_status == "APPROVED" and tags_result == 1 and (license_type is None or license_type == "") and isbnkommentar == 0:
-        return 4
-    elif copyrights_status == "APPROVED" and license_type == "BOLK" and tags_result == 1 and isbnkommentar == 0:
+    """
+    Scriptet nedenfor har ulike tallverdier, som returneres på bakgrunn av flere verdier.
+        1. Dette utløses på referanser som er rapportert via bolk, og er i orden - men hvor 
+            det ikke er noe fil knyttet til referansen. Filen skal altså komme fra bolk/kopinor.
+        2. Som over, men her har vi lastet opp fil, og ingen fil kommer fra bolk/kopinor.
+        3. Dette uløses på referanser som har copyrights status "Approved" og tagg er "Digitalisert".
+            Dette er med andre ord gjerne referanser som var rapportert til bolk/kopinor for fjoråret, 
+            men ikke rapportert for inneværende år.
+        4. Referanse som har feilet /gitt copyrights status "DECLINED"), og er rapportert til bolk/kopinor.
+        5. Referanser som har feilet (gitt copyrights status "DECLINED", men ikke nødvendigvis faktisk er rapportert
+            inn til bolk/kopinor.
+        6. Referanser, hvor det er annen status enn DECLINED, APPROVED eller NOTDETERMINED.
+        7. Referanser med statusen NOTDETERMINED - og som ikke nødvendigvis er rapportert inn til bolk/kopinor.
+        8. Alle referanser som ikke er bolk-rapportert, har tagg som tilsier "DIGITIZED" OG har kommentar om at referansen er uten ISBN
+    """
+
+    if copyrights_status == "APPROVED" and bolk_tag == 1 and tags_ok and (not has_file) and isbnkommentar == 0:
         return 1
-    elif copyrights_status == "DECLINED" and tags_result == 1 and isbnkommentar == 0:
+    elif copyrights_status == "APPROVED" and bolk_tag == 1 and tags_ok and has_file and isbnkommentar == 0:
         return 2
-    elif tags_result == 1 and copyrights_status not in ("DECLINED", "APPROVED") and isbnkommentar == 0:
+    elif copyrights_status == "APPROVED" and bolk_tag == 0 and tags_ok and has_file and isbnkommentar == 0:
         return 3
-    else:
+    elif copyrights_status == "DECLINED" and bolk_tag == 2 and tags_ok and has_file and isbnkommentar == 0:
+        return 4
+    elif copyrights_status == "DECLINED" and bolk_tag == 0 and tags_ok and has_file and isbnkommentar == 0:
         return 5
+    elif copyrights_status not in ("DECLINED", "APPROVED", "NOTDETERMINED") and bolk_tag in (1, 2, 0) and tags_ok and has_file and isbnkommentar == 0:
+        return 6
+    elif copyrights_status == "NOTDETERMINED" and bolk_tag in (1, 2, 0) and tags_ok and has_file and isbnkommentar == 0:
+        return 7
+    elif bolk_tag == 0 and tags_ok and has_file and isbnkommentar == 1:
+        return 8
+    elif tags_result in (2,3):
+        return 9
+    else:
+        return 10
 
 def has_isbn_in_content(ref_note):
     """
