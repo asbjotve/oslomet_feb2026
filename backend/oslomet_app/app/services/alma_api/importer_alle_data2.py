@@ -31,6 +31,8 @@ from app.services.alma_api.helpers import (
     sammensatt_sideangivelse,
     strip_tags,
     validate_filelink,
+    tag_value_basic,
+    clearance_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -323,8 +325,8 @@ async def insert_to_db(pool: aiomysql.Pool, course_json: Dict[str, Any]) -> None
                         ref_kurs_id = c_id
 
                         citation_tags_json = get_nested(ref, ["citation_tags"])
-                        ref_citation_tags = analyze_tags(citation_tags_json, ref_file_link)
-                        ref_citation_tags_bolk = analyze_tags_bolk(citation_tags_json)
+                        ref_citation_tags = tag_value_basic(citation_tags_json, ref_file_link)
+                        ref_citation_tags_bolk = clearance_status(citation_tags_json)
 
                         ref_course_year = c_year
                         ref_aarsem = c_yearterm
@@ -419,10 +421,11 @@ async def insert_to_db(pool: aiomysql.Pool, course_json: Dict[str, Any]) -> None
                         ref_map_secondary_type = map_secondary_type(ref_secondary_type)
                         ref_isbnkommentar = has_isbn_in_content(ref_note)
 
+
                         ref_bolk_kolonneverdi = map_bolk_kolonneverdi(
                             ref_copyrights_status,
-                            ref_license_type,
                             citation_tags_json,
+                            ref_citation_tags_bolk,
                             ref_file_link,
                             ref_isbnkommentar,
                         )
